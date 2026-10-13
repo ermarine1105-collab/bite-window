@@ -1,0 +1,870 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
+<meta name="theme-color" content="#1d4b46">
+<title>Bite Window</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Big+Shoulders+Display:wght@600;800&family=IBM+Plex+Sans:wght@400;500;600&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: one column on phone (live strip → inputs → score → plan), two columns ≥900px with inputs pinned left. */
+:root{
+  --bg:#eef2ef; --panel:#fbfcfa; --ink:#14231e; --muted:#5a6b64; --line:#cfd9d3;
+  --accent:#c4561b; --deep:#1d4b46; --deep-soft:#dbe7e3;
+  --good:#2f7d4f; --warn:#b88a10; --bad:#b2402e;
+  --f-display:"Big Shoulders Display","Arial Narrow",Impact,sans-serif;
+  --f-body:"IBM Plex Sans",system-ui,-apple-system,"Segoe UI",sans-serif;
+  --f-mono:"IBM Plex Mono",ui-monospace,Menlo,Consolas,monospace;
+  color-scheme:light;
+}
+@media (prefers-color-scheme:dark){:root{
+  --bg:#0d1714; --panel:#13211d; --ink:#e3ece7; --muted:#93a59d; --line:#24372f;
+  --accent:#e9773a; --deep:#7fc2b6; --deep-soft:#173029;
+  --good:#5cbf83; --warn:#d9b13b; --bad:#e2715d; color-scheme:dark}}
+*{box-sizing:border-box}
+html{-webkit-text-size-adjust:100%}
+body{margin:0;background:var(--bg);color:var(--ink);font-family:var(--f-body);font-size:15px;line-height:1.5;
+  padding-inline:max(16px,env(safe-area-inset-left,0px));padding-block:calc(20px + env(safe-area-inset-top,0px)) calc(48px + env(safe-area-inset-bottom,0px))}
+[hidden]{display:none!important}
+.wrap{max-width:1180px;margin:0 auto;display:grid;gap:20px}
+header{display:flex;flex-wrap:wrap;align-items:flex-end;justify-content:space-between;gap:8px 20px;border-bottom:2px solid var(--ink);padding-bottom:10px}
+h1{font-family:var(--f-display);font-weight:800;font-size:clamp(2.2rem,7vw,3.4rem);line-height:.9;margin:0;letter-spacing:.01em;text-transform:uppercase}
+h1 span{color:var(--accent)}
+.sub{color:var(--muted);font-size:.85rem;margin:0;max-width:44ch}
+h2{font-family:var(--f-display);font-weight:600;font-size:1.35rem;letter-spacing:.04em;text-transform:uppercase;margin:0 0 10px;text-wrap:balance}
+.label{font-family:var(--f-mono);font-size:.7rem;letter-spacing:.08em;text-transform:uppercase;color:var(--muted)}
+.grid{display:grid;gap:20px;grid-template-columns:1fr}
+@media(min-width:900px){.grid{grid-template-columns:minmax(320px,380px) 1fr}.console{position:sticky;top:calc(env(safe-area-inset-top,0px) + 12px);align-self:start;max-height:calc(100vh - 24px);overflow-y:auto}}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:6px;padding:16px;min-width:0}
+.console{display:grid;gap:14px}
+.field{display:grid;gap:4px;min-width:0}
+.row2{display:grid;grid-template-columns:1fr 1fr;gap:12px}
+input,select,textarea{font:inherit;font-size:16px;color:var(--ink);background:var(--bg);border:1px solid var(--line);border-radius:4px;padding:8px 10px;width:100%;min-width:0}
+textarea{min-height:110px;resize:vertical}
+input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-visible,a:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.seg{display:flex;flex-wrap:wrap;gap:6px}
+.seg button{font:inherit;font-size:.82rem;border:1px solid var(--line);background:var(--bg);color:var(--ink);border-radius:999px;padding:5px 11px;cursor:pointer}
+.seg button[aria-pressed="true"]{background:var(--deep);border-color:var(--deep);color:var(--panel)}
+.btn{font:inherit;font-weight:600;border:0;border-radius:4px;padding:9px 14px;cursor:pointer;background:var(--accent);color:#fff}
+.btn.ghost{background:transparent;color:var(--deep);border:1px solid var(--deep)}
+.btn.sm{padding:6px 11px;font-size:.82rem}
+.btn:disabled{opacity:.55;cursor:default}
+.example{font-size:.78rem;background:var(--deep-soft);color:var(--deep);border-radius:4px;padding:6px 10px}
+.src{font-size:.68rem;font-family:var(--f-mono);letter-spacing:.04em;margin-left:6px;text-transform:none}
+.src.live{color:var(--good)} .src.manual{color:var(--warn)}
+.live{border:1px solid var(--deep);border-radius:6px;padding:10px 12px;display:grid;gap:8px;background:var(--deep-soft)}
+.live-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
+.live-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.9rem;color:var(--deep)}
+.dot{width:9px;height:9px;border-radius:50%;background:var(--muted);flex:none}
+.dot.on{background:var(--good)} .dot.busy{background:var(--warn);animation:pulse 1s infinite} .dot.err{background:var(--bad)}
+@keyframes pulse{50%{opacity:.35}}
+.sources{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:.78rem}
+.sources li{display:grid;grid-template-columns:14px 1fr;gap:6px;align-items:start;overflow-wrap:anywhere}
+.sources .ok{color:var(--good)} .sources .no{color:var(--bad)} .sources .na{color:var(--muted)}
+.live-fc{font-size:.82rem;color:var(--ink)}
+.results{display:grid;gap:20px;min-width:0}
+.hero{display:grid;grid-template-columns:auto 1fr;gap:18px;align-items:center}
+@media(max-width:520px){.hero{grid-template-columns:1fr;justify-items:start}}
+.dial{position:relative;width:170px;height:170px}
+.dial svg{width:100%;height:100%}
+.dial .num{position:absolute;inset:0;display:grid;place-items:center;text-align:center}
+.dial .num b{font-family:var(--f-display);font-size:3.6rem;font-weight:800;line-height:.85;font-variant-numeric:tabular-nums}
+.dial .num small{display:block;font-family:var(--f-mono);font-size:.68rem;color:var(--muted);letter-spacing:.08em}
+.verdict{font-family:var(--f-display);font-size:2rem;font-weight:800;text-transform:uppercase;line-height:1}
+.hero p{margin:6px 0 0;max-width:52ch}
+.chips{display:flex;flex-wrap:wrap;gap:6px;margin-top:10px}
+.chip{font-family:var(--f-mono);font-size:.72rem;border:1px solid var(--line);border-radius:3px;padding:3px 7px;background:var(--bg)}
+.chip.warn{border-color:var(--bad);color:var(--bad)}
+.factors{display:grid;gap:8px}
+.factor{display:grid;grid-template-columns:minmax(92px,130px) 1fr 54px;gap:10px;align-items:center;font-size:.86rem}
+.factor .bar{height:10px;background:var(--deep-soft);border-radius:2px;overflow:hidden}
+.factor .bar i{display:block;height:100%;border-radius:2px}
+.factor .pts{font-family:var(--f-mono);font-size:.78rem;text-align:right;font-variant-numeric:tabular-nums;color:var(--muted)}
+.factor .why{grid-column:1/-1;color:var(--muted);font-size:.78rem;margin-top:-4px}
+.plan{display:grid;gap:12px;grid-template-columns:repeat(auto-fit,minmax(230px,1fr))}
+.lure{border:1px solid var(--line);border-radius:6px;padding:12px 14px;background:var(--bg);display:grid;gap:6px;align-content:start}
+.lure .rank{font-family:var(--f-mono);font-size:.7rem;color:var(--accent);letter-spacing:.08em}
+.lure h3{margin:0;font-size:1.02rem;font-weight:600}
+.kv{display:grid;grid-template-columns:72px 1fr;gap:2px 8px;font-size:.84rem;margin:0}
+.kv dt{color:var(--muted);font-family:var(--f-mono);font-size:.72rem;text-transform:uppercase;letter-spacing:.05em;padding-top:2px}
+.kv dd{margin:0}
+.speed{display:inline-flex;gap:3px;vertical-align:middle;margin-left:6px}
+.speed i{width:12px;height:6px;border-radius:1px;background:var(--line)}
+.speed i.on{background:var(--accent)}
+ul.tips{margin:0;padding-left:18px;display:grid;gap:6px;font-size:.9rem}
+.sky{display:grid;grid-template-columns:repeat(auto-fit,minmax(130px,1fr));gap:10px}
+.sky div{border-left:3px solid var(--deep);padding:2px 10px}
+.sky b{display:block;font-family:var(--f-mono);font-weight:500;font-size:.95rem;font-variant-numeric:tabular-nums}
+.timeline{margin-top:14px;overflow-x:auto}
+.timeline svg{width:100%;min-width:520px;height:74px;display:block}
+.links{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:.86rem}
+.links a{color:var(--deep);font-weight:500}
+.status{font-size:.82rem;color:var(--muted);min-height:1.2em}
+footer{color:var(--muted);font-size:.78rem;max-width:80ch}
+footer a{color:inherit}
+.dial circle.val{transition:stroke-dashoffset .5s ease}
+@media (prefers-reduced-motion:reduce){*{transition:none!important;animation:none!important}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>Bite <span>Window</span></h1>
+    <p class="sub">Tap Refresh for live weather, pressure trend, and nearby gauge readings. Score and game plan recalculate as you change anything.</p>
+  </header>
+
+  <div class="grid">
+    <section class="panel console" aria-label="Conditions">
+      <div class="live" aria-live="polite">
+        <div class="live-head">
+          <div class="live-title"><span class="dot" id="liveDot"></span><span id="liveTitle">Not refreshed yet</span></div>
+          <button class="btn sm" id="refreshBtn" type="button">Refresh conditions</button>
+        </div>
+        <ul class="sources" id="sources"></ul>
+        <div class="live-fc" id="liveFc"></div>
+      </div>
+      <div class="example" id="exampleNote">Example readings for a mid-October morning. Tap Refresh conditions to load today's.</div>
+
+      <div class="field">
+        <label class="label" for="water">Body of water</label>
+        <select id="water"></select>
+      </div>
+      <div id="customLoc" hidden>
+        <div class="row2">
+          <div class="field"><label class="label" for="lat">Latitude</label><input id="lat" type="number" step="0.001" inputmode="decimal"></div>
+          <div class="field"><label class="label" for="lon">Longitude</label><input id="lon" type="number" step="0.001" inputmode="decimal"></div>
+        </div>
+        <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-top:8px">
+          <button class="btn ghost sm" id="geoBtn" type="button">Use my location</button>
+          <label class="field" style="flex:1;min-width:140px"><span class="label">Water type</span>
+            <select id="ctype"><option value="res">Lake / reservoir</option><option value="tail">River / tailwater</option></select></label>
+        </div>
+        <div class="status" id="geoStatus"></div>
+      </div>
+
+      <div class="row2">
+        <div class="field"><label class="label" for="species">Target species</label><select id="species"></select></div>
+        <div class="field"><label class="label" for="when">Fishing time</label><input id="when" type="datetime-local"></div>
+      </div>
+
+      <div class="row2">
+        <div class="field"><label class="label" for="wtemp">Water temp °F<span class="src" id="src-wtemp"></span></label><input id="wtemp" type="number" step="0.5" inputmode="decimal" value="68"></div>
+        <div class="field"><label class="label" for="atemp">Air temp °F<span class="src" id="src-atemp"></span></label><input id="atemp" type="number" step="1" inputmode="decimal" value="52"></div>
+      </div>
+      <div class="row2">
+        <div class="field"><label class="label" for="wind">Wind mph<span class="src" id="src-wind"></span></label><input id="wind" type="number" step="1" min="0" inputmode="decimal" value="7"></div>
+        <div class="field"><label class="label" for="baro">Barometer inHg<span class="src" id="src-baro"></span></label><input id="baro" type="number" step="0.01" inputmode="decimal" value="30.08"></div>
+      </div>
+
+      <div class="field"><span class="label">Pressure trend (past 3 hr)<span class="src" id="src-pressure"></span></span>
+        <div class="seg" data-key="pressure">
+          <button data-v="fallFast">Falling fast</button><button data-v="fallSlow">Falling slow</button><button data-v="stable">Steady</button><button data-v="riseSlow">Rising slow</button><button data-v="post">Rising fast / post-front</button>
+        </div></div>
+      <div class="field"><span class="label">Sky<span class="src" id="src-sky"></span></span>
+        <div class="seg" data-key="sky">
+          <button data-v="clear">Bluebird</button><button data-v="partly">Partly cloudy</button><button data-v="overcast">Overcast / fog</button><button data-v="rain">Rain</button><button data-v="storm">Thunderstorms</button>
+        </div></div>
+      <div class="field"><span class="label">Water clarity</span>
+        <div class="seg" data-key="clarity">
+          <button data-v="clear">Clear (8 ft+)</button><button data-v="light">Light stain</button><button data-v="stained">Stained</button><button data-v="muddy">Muddy</button>
+        </div></div>
+      <div class="field"><span class="label">Level / current<span class="src" id="src-flow"></span></span>
+        <div class="seg" data-key="flow">
+          <button data-v="stable">Stable</button><button data-v="rising">Rising</button><button data-v="falling">Falling</button><button data-v="moving">Dam generating</button>
+        </div></div>
+      <div class="field"><span class="label">Water temp trend (3 days)<span class="src" id="src-ttrend"></span></span>
+        <div class="seg" data-key="ttrend">
+          <button data-v="up">Warming</button><button data-v="flat">Flat</button><button data-v="down">Cooling slowly</button><button data-v="crash">Dropped 5°+</button>
+        </div></div>
+
+      <div class="field">
+        <label class="label" for="report">Local fishing report (paste)</label>
+        <textarea id="report" placeholder="Paste a TWRA, marina, or guide report here."></textarea>
+        <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center">
+          <button class="btn ghost sm" id="readReport" type="button">Scan report</button>
+          <span class="status" id="reportStatus"></span>
+        </div>
+      </div>
+    </section>
+
+    <div class="results">
+      <section class="panel hero" aria-live="polite">
+        <div class="dial">
+          <svg viewBox="0 0 170 170" aria-hidden="true">
+            <circle cx="85" cy="85" r="72" fill="none" stroke="var(--deep-soft)" stroke-width="14"/>
+            <circle class="val" id="dialArc" cx="85" cy="85" r="72" fill="none" stroke="var(--accent)" stroke-width="14" transform="rotate(-90 85 85)" stroke-dasharray="452.4" stroke-dashoffset="452.4"/>
+          </svg>
+          <div class="num"><div><b id="scoreNum">0</b><small>OF 100</small></div></div>
+        </div>
+        <div style="min-width:0">
+          <div class="label">Bite outlook · <span id="speciesLabel"></span></div>
+          <div class="verdict" id="verdict">—</div>
+          <p id="summary"></p>
+          <div class="chips" id="chips"></div>
+        </div>
+      </section>
+
+      <section class="panel"><h2>Game plan</h2><div class="plan" id="plan"></div></section>
+      <section class="panel"><h2>Moves that raise your odds</h2><ul class="tips" id="tips"></ul></section>
+      <section class="panel"><h2>Score drivers</h2><div class="factors" id="factors"></div></section>
+      <section class="panel">
+        <h2>Sun &amp; moon</h2>
+        <div class="sky" id="sky"></div>
+        <div class="timeline" id="timeline"></div>
+        <p class="label" style="margin:8px 0 0">Solunar periods are calculated from moon phase and location (±30 min accuracy).</p>
+      </section>
+      <section class="panel"><h2>Check what Refresh can't</h2><div class="links" id="links"></div></section>
+    </div>
+  </div>
+
+  <footer>Scoring is a weighted heuristic built on common angling guidance (temperature preference, front behavior, light, wind, solunar timing). It is not trained on catch data, so treat the number as a planning aid. Air readings are modeled for the exact spot; water readings come from the nearest USGS gauge, which may be miles away. Check the forecast and generation schedule before launching.
+  Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Forecast text from the National Weather Service. Water data from the U.S. Geological Survey.</footer>
+</div>
+
+<script>
+(function(){
+"use strict";
+const $=id=>document.getElementById(id);
+
+/* ---------- Places ---------- */
+const WATERS=[
+ {id:"melton",name:"Melton Hill Lake, TN",lat:35.93,lon:-84.23,type:"res",tva:true},
+ {id:"norris",name:"Norris Lake, TN",lat:36.29,lon:-83.95,type:"res",tva:true},
+ {id:"wattsbar",name:"Watts Bar Lake, TN",lat:35.77,lon:-84.66,type:"res",tva:true},
+ {id:"loudoun",name:"Fort Loudoun Lake, TN",lat:35.83,lon:-84.10,type:"res",tva:true},
+ {id:"tellico",name:"Tellico Lake, TN",lat:35.66,lon:-84.25,type:"res",tva:true},
+ {id:"clinch",name:"Clinch River tailwater (below Norris Dam), TN",lat:36.21,lon:-84.07,type:"tail",tva:true},
+ {id:"custom",name:"Somewhere else / my location",lat:35.93,lon:-84.23,type:"res",tva:false}
+];
+
+/* ---------- Species knowledge ---------- */
+const SP={
+ lmb:{name:"Largemouth bass",opt:[65,80],act:[48,88],night:.5,deep:.6},
+ smb:{name:"Smallmouth bass",opt:[62,75],act:[45,80],night:.45,deep:.65},
+ str:{name:"Striped bass",opt:[60,70],act:[48,76],night:.75,deep:.75},
+ cra:{name:"Crappie",opt:[60,72],act:[45,80],night:.6,deep:.7},
+ wal:{name:"Walleye / sauger",opt:[55,70],act:[38,75],night:.9,deep:.65},
+ trt:{name:"Trout (tailwater)",opt:[50,64],act:[40,68],night:.3,deep:.8},
+ cat:{name:"Catfish",opt:[70,85],act:[50,90],night:1,deep:.75},
+ blu:{name:"Bluegill / sunfish",opt:[68,80],act:[55,88],night:.2,deep:.7}
+};
+const P=(name,how,speed,depth,why)=>({name,how,speed,depth,why});
+const PLAYBOOK={
+ lmb:[
+  {max:50,where:"Steep channel banks, bluff ends, and channel swings 15–30 ft",
+   p:[P("Football or finesse jig with craw trailer","Drag and hop along bottom, long pauses",1,"15–30 ft","Cold bass eat slow, bottom-hugging food."),
+      P("Suspending jerkbait","Two twitches, pause 8–15 sec",1,"6–10 ft","Long pauses let a lethargic fish commit."),
+      P("Blade bait","Lift 2 ft, let it fall on slack line",2,"20–35 ft","Vertical flash for fish stacked on shad schools.")]},
+  {max:60,where:"Secondary points and flats next to deep water, 5–15 ft",
+   p:[P("Lipless crankbait","Yo-yo: rip up, let it fall, repeat",3,"4–12 ft","Covers water fast while fish roam."),
+      P("Jerkbait","Twitch-twitch-pause, 3–5 sec pause",2,"5–10 ft","Erratic minnow profile triggers pre-move fish."),
+      P("Swimbait on a jighead","Slow steady roll near bottom",2,"8–15 ft","Matches the shad they follow.")]},
+  {max:70,fall:true,where:"Backs of creeks and pockets where shad are flipping, 2–8 ft",
+   p:[P("Squarebill crankbait","Steady, deflect off rock and wood",4,"2–6 ft","Deflections trigger reaction strikes on shad-chasing bass."),
+      P("Spinnerbait (willow blades)","Slow roll, bump cover",3,"2–8 ft","Flash imitates fleeing baitfish; good in wind."),
+      P("Walking topwater","Walk-the-dog, steady cadence",4,"Surface","Fall bass push bait to the top early and late.")]},
+  {max:70,spring:true,where:"Protected pockets and spawning flats, 1–6 ft",
+   p:[P("Wacky-rigged stick worm","Cast, let it fall, twitch once, wait",1,"1–5 ft","Slow fall gets bed-guarding fish to bite."),
+      P("Texas-rigged creature bait","Pitch to cover, short hops",2,"2–8 ft","Bed intruder profile."),
+      P("Swim jig","Slow steady swim past cover",3,"2–6 ft","Picks off cruisers staging near beds.")]},
+  {max:80,where:"Grass edges and shade early; ledges and points 10–20 ft midday",
+   p:[P("Hollow frog or popper","Walk or pop with pauses at the edges",3,"Surface","Low-light topwater on shallow fish."),
+      P("Texas-rigged 10\" worm","Drag slowly, short hops",2,"10–20 ft","Big profile for offshore fish."),
+      P("Deep-diving crankbait","Crank to bottom, then deflect off structure",3,"12–20 ft","Reaction bite on ledge schools.")]},
+  {max:99,where:"Offshore ledges 15–25 ft by day; shallow cover after dark",
+   p:[P("Big worm or football jig","Drag along the ledge break",1,"15–25 ft","Fish suspend deep in the coolest oxygenated water."),
+      P("Deep crankbait","Burn it to bottom, kill it after contact",4,"15–22 ft","Speed triggers fish you can't coax slow."),
+      P("Night spinnerbait (Colorado blade)","Slow roll, thump the blade",2,"3–10 ft","Vibration finds bass in the dark.")]}
+ ],
+ smb:[
+  {max:50,where:"Rock bluffs and steep chunk rock, 15–30 ft",
+   p:[P("Float-n-fly (hair jig under bobber)","Dead still; let waves move it",1,"8–20 ft","The classic Tennessee cold-water smallmouth bait."),
+      P("Ned rig","Drag slowly, minimal hops",1,"10–25 ft","Small, subtle, and on bottom."),
+      P("Blade bait","Short lifts, slack-line fall",2,"20–35 ft","Vertical flash for deep schools.")]},
+  {max:62,where:"Gravel points and transition banks, 8–20 ft",
+   p:[P("Jerkbait","Twitch-twitch-pause, 3–6 sec",2,"5–10 ft","Smallmouth rise to a paused minnow."),
+      P("Tube on a 1/4 oz jighead","Hop and drag along gravel",2,"8–18 ft","Crawfish imitation."),
+      P("Ned rig","Drag and deadstick",1,"8–20 ft","Reliable when fish are moody.")]},
+  {max:75,where:"Points, current seams, and mid-depth rock 4–15 ft",
+   p:[P("Walking topwater or prop bait","Steady walk, speed up on follows",4,"Surface","Aggressive surface feeding on shad."),
+      P("Medium-diving crawfish crankbait","Bounce bottom on rock",3,"6–12 ft","Crawfish are the main forage on rock."),
+      P("Tube or drop shot","Drag, shake in place",2,"10–20 ft","Finesse follow-up for short strikers.")]},
+  {max:99,where:"Deep rock and current breaks; topwater at first light",
+   p:[P("Drop shot with small minnow","Shake in place on bottom",1,"18–30 ft","Fish hold deep in summer heat."),
+      P("Topwater popper","Pop-pop-pause",3,"Surface","Short window at dawn."),
+      P("Ned rig","Slow drag",1,"15–25 ft","Finesse for heat-stressed fish.")]}
+ ],
+ str:[
+  {max:55,where:"Creek mouths and shallow flats where shad gather; follow the gulls",
+   p:[P("Live gizzard shad on planer board","Pull at 0.5–1 mph",1,"Top 10 ft","Cold stripers feed on big shad near the surface."),
+      P("Umbrella / Alabama rig","Slow steady retrieve",2,"8–20 ft","Imitates a shad school."),
+      P("Bucktail jig with trailer","Swim with occasional pops",2,"5–15 ft","Classic cold-water striper jig.")]},
+  {max:68,fall:true,where:"Creek channels and main-lake points as shad migrate",
+   p:[P("Live shad on free lines and planer boards","Troll slowly, 0.5–1.2 mph",1,"Surface–15 ft","Fall stripers chase shad shallow."),
+      P("Topwater walker or chug bug","Fast walk at first light",4,"Surface","Explosive dawn surface feeding."),
+      P("Swimbait on 1 oz head","Cast to breaking fish, steady retrieve",3,"0–10 ft","Covers breaking schools quickly.")]},
+  {max:68,where:"Main-lake points and humps 15–30 ft",
+   p:[P("Live shad on downlines","Hold right above the fish on sonar",1,"15–30 ft","Puts bait in their face."),
+      P("Swimbait on 1 oz head","Count down, steady retrieve",3,"10–25 ft","Imitates shad."),
+      P("Topwater at dawn","Fast walk",4,"Surface","Short early window.")]},
+  {max:99,where:"Deep cool water near the thermocline or below dams",
+   p:[P("Live bait on downlines","Hold at the depth fish mark",1,"25–45 ft","Summer stripers hang at the oxygen/temperature edge."),
+      P("Trolled deep-diving plug or leadcore","Troll 2–3 mph",3,"20–35 ft","Covers water to find schools."),
+      P("Heavy spoon","Jig vertically",3,"25–40 ft","Reaction bite on schooled fish.")]}
+ ],
+ cra:[
+  {max:50,where:"Deep brush piles and channel edges, 20–30 ft",
+   p:[P("1/16–1/8 oz tube or curly-tail jig","Vertical, hold dead still",1,"18–30 ft","Cold crappie suspend and barely move."),
+      P("Live minnow on a split-shot rig","Hold just above brush",1,"18–30 ft","Live bait outfishes artificials in cold water."),
+      P("Small blade bait","Tiny lifts",2,"20–30 ft","Draws school fish.")]},
+  {max:58,where:"Brush piles and creek channel bends, 10–20 ft",
+   p:[P("Minnow under slip float","Set float so bait hangs 1–2 ft above brush",1,"10–20 ft","Stationary bait for staging fish."),
+      P("Jig and minnow combo","Slow swim over brush",2,"10–18 ft","Scent plus profile."),
+      P("Hair jig","Count down, slow swim",2,"8–15 ft","Natural breathing action.")]},
+  {max:70,spring:true,where:"Shallow brush, stumps, and docks 2–8 ft",
+   p:[P("Jig under a float","Pop the float, let it settle",1,"2–6 ft","Spawning crappie hold tight to shallow cover."),
+      P("Live minnow under float","Set 2–4 ft",1,"2–6 ft","Easy meal near beds."),
+      P("Small swimbait jig","Slow swim past cover",2,"3–8 ft","Covers spawning banks.")]},
+  {max:72,where:"Brush piles and dock pilings 10–20 ft",
+   p:[P("1/16 oz jig on brush","Vertical, tiny twitches",1,"10–20 ft","Fall crappie gather on brush near creek channels."),
+      P("Live minnow","Hold above brush",1,"10–20 ft","Reliable in variable conditions."),
+      P("Dock shooting with tube jig","Skip under docks, slow fall",2,"4–12 ft","Shade holds fish on bright days.")]},
+  {max:99,where:"Deep brush and bridge pilings 15–25 ft; lights at night",
+   p:[P("Live minnow under submerged light","Hold at the depth fish show",1,"12–25 ft","Lights draw baitfish and crappie after dark."),
+      P("Small jig on deep brush","Vertical, still",1,"15–25 ft","Fish hold in cooler water."),
+      P("Trolled crankbaits","Pull 1.5–2 mph",3,"10–18 ft","Finds scattered summer fish.")]}
+ ],
+ wal:[
+  {max:45,where:"Tailraces, deep channel edges 20–35 ft",
+   p:[P("Jig and minnow","Hop slowly along bottom",1,"20–35 ft","Classic cold-water walleye/sauger presentation."),
+      P("Blade bait","Short lifts",2,"20–35 ft","Vibration in cold water."),
+      P("Hair jig","Drag in current seams",1,"15–30 ft","Subtle in clear cold water.")]},
+  {max:60,where:"Rocky points and flats near the channel; shallow after dark",
+   p:[P("Jerkbait after dark","Slow twitch-pause",2,"3–10 ft","Walleye move up to feed at night."),
+      P("Jig and minnow","Slow drag",1,"10–25 ft","Daytime staple."),
+      P("Shallow crankbait","Slow steady retrieve",2,"5–12 ft","Covers flats at dusk.")]},
+  {max:70,where:"Flats and points 10–20 ft",
+   p:[P("Nightcrawler harness on bottom bouncer","Troll 0.8–1.2 mph",2,"12–25 ft","Spinner flash plus scent."),
+      P("Trolled crankbait","Troll 1.5–2.2 mph",3,"10–20 ft","Covers water to find active fish."),
+      P("Jig and crawler","Slow drag",1,"12–22 ft","Finesse option.")]},
+  {max:99,where:"Deep structure and thermocline; shallow at night",
+   p:[P("Bottom bouncer harness","Troll slowly",2,"20–35 ft","Fish move deep in summer."),
+      P("Night trolling with stickbaits","Troll 1.5–2 mph",3,"5–15 ft","Fish feed shallow after dark."),
+      P("Drop shot with minnow","Hold in place",1,"20–30 ft","Pinpoint presentation.")]}
+ ],
+ trt:[
+  {max:45,where:"Slower deep runs and tailouts",
+   p:[P("Midge or zebra midge nymph under indicator","Dead drift, no drag",1,"Bottom third","Midges are the main winter food in TN tailwaters."),
+      P("Small scud or sowbug","Dead drift",1,"Near bottom","Year-round tailwater forage."),
+      P("Small spoon or inline spinner","Cast across, slow swing",2,"Mid-column","Spin-gear option.")]},
+  {max:60,where:"Riffles, seams, and the edges of current",
+   p:[P("Nymph rig (sowbug + midge dropper)","Dead drift",1,"Bottom third","Most tailwater fish eat subsurface."),
+      P("Small jerk minnow","Twitch downstream, pause",2,"2–5 ft","Imitates sculpin and shad kill."),
+      P("Inline spinner","Cast across, retrieve just faster than current",3,"Mid-column","Flash in moving water.")]},
+  {max:68,where:"Coldest water near the dam; shaded banks",
+   p:[P("Nymphs at first light","Dead drift",1,"Bottom","Feed early before water warms."),
+      P("Streamer on overcast days","Strip and pause",3,"Mid-column","Low light brings bigger fish out."),
+      P("Small spoon","Slow swing",2,"Mid-column","Simple, effective.")]},
+  {max:99,where:"Only the coldest outflow; consider not fishing",
+   p:[P("Nymphs right below the dam","Dead drift",1,"Bottom","Water this warm stresses trout."),
+      P("Release fish fast","Keep fish wet",1,"—","Catch-and-release mortality rises above 68°F."),
+      P("Switch species","—",1,"—","Bass or bluegill fishing is the better call.")]}
+ ],
+ cat:[
+  {max:50,where:"Deep holes and channel bends 25–40 ft",
+   p:[P("Fresh cut shad on bottom","Anchor and soak 20–30 min per spot",1,"25–40 ft","Cold blues feed on dead shad near the channel."),
+      P("Nightcrawlers","Soak on bottom",1,"20–35 ft","Easy scent trail."),
+      P("Slow drift with cut bait","Drift 0.3–0.5 mph",1,"20–35 ft","Covers flats when fish scatter.")]},
+  {max:65,where:"Channel ledges and flats near deep water",
+   p:[P("Cut shad or skipjack","Anchor on ledges",1,"12–30 ft","Oily bait spreads scent."),
+      P("Nightcrawlers","Bottom soak",1,"8–20 ft","Channel cat favorite."),
+      P("Drift fishing cut bait","Drift 0.4–0.7 mph",2,"10–25 ft","Finds active fish.")]},
+  {max:85,where:"Ledges, current breaks, and flats at night",
+   p:[P("Cut shad below the dam during generation","Anchor in current seams",1,"10–30 ft","Current concentrates bait and cats."),
+      P("Chicken liver or dip bait","Bottom soak",1,"6–15 ft","Strong scent for channel cats."),
+      P("Live bluegill for flatheads","Anchor near wood after dark",1,"8–20 ft","Flatheads want live prey.")]},
+  {max:99,where:"Deep holes by day; shallow flats at night",
+   p:[P("Cut bait at night","Soak on flats",1,"6–15 ft","Fish feed shallow after dark."),
+      P("Live bait for flatheads","Near deep wood",1,"15–25 ft","Big-fish option."),
+      P("Dip bait","Bottom",1,"10–20 ft","Channel cats in warm water.")]}
+ ],
+ blu:[
+  {max:55,where:"Deep weed edges and brush 10–20 ft",
+   p:[P("Waxworm on a tiny jig","Vertical, still",1,"10–20 ft","Small bait for slow fish."),
+      P("Small hair jig","Slow swim",1,"8–15 ft","Natural breathing action."),
+      P("Red worm under a float","Set near bottom",1,"8–15 ft","Simple and reliable.")]},
+  {max:65,where:"Weed edges and docks 4–10 ft",
+   p:[P("Red worm or cricket under a float","Let it sit, tiny twitches",1,"3–8 ft","Natural food."),
+      P("1/32 oz tube jig","Slow swim",2,"4–10 ft","Covers water."),
+      P("Small inline spinner","Slow retrieve",2,"3–8 ft","Finds active fish.")]},
+  {max:80,where:"Spawning beds on firm bottom, 2–6 ft",
+   p:[P("Cricket under a float","Drop on the beds",1,"2–5 ft","Bedding bluegill are aggressive."),
+      P("Popping bug (fly rod)","Pop and pause",2,"Surface","Fun and effective near beds."),
+      P("Small beetle spin","Slow retrieve",2,"2–6 ft","Covers bed clusters.")]},
+  {max:99,where:"Deeper weed lines and shade 8–15 ft",
+   p:[P("Red worm on split shot","Slow drag",1,"8–15 ft","Fish move deeper in heat."),
+      P("Small jig","Vertical",1,"8–15 ft","Precise."),
+      P("Cricket under float in shade","Set 4–8 ft",1,"4–8 ft","Docks and overhanging trees.")]}
+ ]
+};
+
+/* ---------- State ---------- */
+const S={pressure:"fallSlow",sky:"partly",clarity:"light",flow:"stable",ttrend:"down",report:null};
+const SRC={}; // field -> "live" | "manual"
+let userEdited=false, lastLive=null;
+
+/* ---------- Astronomy ---------- */
+const RAD=Math.PI/180, SYN=29.530588853;
+function moonAge(d){const ref=Date.UTC(2000,0,6,18,14);let a=((d.getTime()-ref)/864e5)%SYN;if(a<0)a+=SYN;return a;}
+function moonIllum(age){return (1-Math.cos(2*Math.PI*age/SYN))/2}
+function phaseName(age){const n=["New moon","Waxing crescent","First quarter","Waxing gibbous","Full moon","Waning gibbous","Last quarter","Waning crescent"];return n[Math.floor(((age/SYN)*8+0.5))%8];}
+function sunTimes(date,lat,lon){
+  const y=date.getFullYear(),m=date.getMonth(),d=date.getDate();
+  const JD=Date.UTC(y,m,d,12)/864e5+2440587.5;
+  const n=Math.round(JD-2451545+0.0008);
+  const Js=n-lon/360;
+  const M=(357.5291+0.98560028*Js)%360;
+  const C=1.9148*Math.sin(M*RAD)+0.02*Math.sin(2*M*RAD)+0.0003*Math.sin(3*M*RAD);
+  const L=(M+C+180+102.9372)%360;
+  const Jt=2451545+Js+0.0053*Math.sin(M*RAD)-0.0069*Math.sin(2*L*RAD);
+  const dec=Math.asin(Math.sin(L*RAD)*Math.sin(23.4397*RAD));
+  const cw=(Math.sin(-0.833*RAD)-Math.sin(lat*RAD)*Math.sin(dec))/(Math.cos(lat*RAD)*Math.cos(dec));
+  const w=Math.acos(Math.max(-1,Math.min(1,cw)))/RAD;
+  const toD=J=>new Date((J-2440587.5)*864e5);
+  return {rise:toD(Jt-w/360),noon:toD(Jt),set:toD(Jt+w/360)};
+}
+function solunar(date,lat,lon){
+  const out=[];
+  for(const off of [-1,0,1]){
+    const dd=new Date(date.getFullYear(),date.getMonth(),date.getDate()+off,12);
+    const st=sunTimes(dd,lat,lon), age=moonAge(st.noon);
+    const T=st.noon.getTime()+(age/SYN)*864e5*1.035, H=36e5;
+    out.push({t:T,type:"major",label:"Moon overhead"},{t:T+12.42*H,type:"major",label:"Moon underfoot"},
+             {t:T-6.21*H,type:"minor",label:"Moonrise"},{t:T+6.21*H,type:"minor",label:"Moonset"});
+  }
+  return out.sort((a,b)=>a.t-b.t);
+}
+
+/* ---------- Helpers ---------- */
+const fmtT=d=>new Date(d).toLocaleTimeString([], {hour:"numeric",minute:"2-digit"});
+const clamp=(v,a,b)=>Math.max(a,Math.min(b,v));
+function getLoc(){
+  const w=WATERS.find(x=>x.id===$("water").value)||WATERS[0];
+  if(w.id==="custom"){
+    const la=parseFloat($("lat").value), lo=parseFloat($("lon").value);
+    return {...w,lat:isFinite(la)?la:w.lat,lon:isFinite(lo)?lo:w.lon,type:$("ctype").value};
+  }
+  return w;
+}
+function season(month){return month>=2&&month<=5?"spring":month>=8&&month<=10?"fall":month>=6&&month<=7?"summer":"winter"}
+function miles(a,b,c,d){const R=3958.8,dl=(c-a)*RAD,dn=(d-b)*RAD;const x=Math.sin(dl/2)**2+Math.cos(a*RAD)*Math.cos(c*RAD)*Math.sin(dn/2)**2;return 2*R*Math.asin(Math.sqrt(x));}
+
+/* ---------- Scoring ---------- */
+function tempFactor(t,sp){
+  const [o1,o2]=sp.opt,[a1,a2]=sp.act;
+  if(!isFinite(t))return {f:.5,why:"No water temp entered."};
+  if(t>=o1&&t<=o2)return {f:1,why:`${t}°F sits in the ${o1}–${o2}°F comfort range.`};
+  if(t<a1||t>a2)return {f:.12,why:`${t}°F is outside the ${a1}–${a2}°F active range. Metabolism is way down.`};
+  const f=t<o1? .35+.65*(t-a1)/(o1-a1) : .35+.65*(a2-t)/(a2-o2);
+  return {f,why:`${t}°F is ${t<o1?"below":"above"} the ${o1}–${o2}°F comfort range; fish are active but less aggressive.`};
+}
+function compute(){
+  const loc=getLoc(), spKey=$("species").value, sp=SP[spKey];
+  const when=$("when").value?new Date($("when").value):new Date();
+  const wt=parseFloat($("wtemp").value), wind=parseFloat($("wind").value);
+  const sun=sunTimes(when,loc.lat,loc.lon), age=moonAge(when), illum=moonIllum(age), sol=solunar(when,loc.lat,loc.lon);
+  const F=[]; const add=(name,w,f,why)=>F.push({name,w,f:clamp(f,0,1),why});
+
+  const tf=tempFactor(wt,sp); let tfF=tf.f, tWhy=tf.why;
+  if(S.ttrend==="crash"){tfF*=.6;tWhy+=" A 5°+ drop shuts fish down for a day or two.";}
+  else if(S.ttrend==="down"&&season(when.getMonth())==="fall"){tfF=Math.min(1,tfF+.08);tWhy+=" Gradual fall cooling triggers feeding.";}
+  else if(S.ttrend==="up"&&season(when.getMonth())==="spring"){tfF=Math.min(1,tfF+.08);tWhy+=" Spring warming pushes fish shallow.";}
+  add("Water temp",22,tfF,tWhy);
+
+  const pm={fallFast:[.75,"Fast-falling pressure ahead of a front often sparks a short feeding binge. Watch for storms."],
+    fallSlow:[1,"Slowly falling pressure is the classic pre-front feeding window."],
+    stable:[.72,"Steady pressure means fish settle into predictable patterns."],
+    riseSlow:[.5,"Rising pressure after a front usually tightens fish to cover."],
+    post:[.25,"Fast-rising post-front pressure is the toughest bite of the cycle."]};
+  add("Pressure trend",15,pm[S.pressure][0],pm[S.pressure][1]);
+
+  const t=when.getTime(), H=36e5;
+  const nearDawn=Math.abs(t-sun.rise.getTime())<=1.5*H, nearDusk=Math.abs(t-sun.set.getTime())<=1.5*H;
+  const night=t<sun.rise.getTime()-1.5*H||t>sun.set.getTime()+1.5*H;
+  let tod,todWhy;
+  if(nearDawn||nearDusk){tod=1;todWhy=`Inside the low-light window around ${nearDawn?"sunrise "+fmtT(sun.rise):"sunset "+fmtT(sun.set)}.`;}
+  else if(night){tod=sp.night;todWhy=`After dark. ${sp.night>=.75?"This species feeds well at night.":"Most fish of this species are less active at night."}`;}
+  else {tod=.55+(sp.deep-.6)*.6;todWhy="Midday light pushes fish deeper and tighter to cover.";}
+  if(!night&&!nearDawn&&!nearDusk&&(S.sky==="overcast"||S.sky==="rain")){tod=Math.min(1,tod+.2);todWhy+=" Cloud cover extends the low-light bite.";}
+  add("Time of day",14,tod,todWhy);
+
+  let wf,wWhy;
+  if(!isFinite(wind)){wf=.6;wWhy="No wind entered.";}
+  else if(wind<=3){wf=.6;wWhy="Slick calm makes fish wary of shadows and line.";}
+  else if(wind<=12){wf=1;wWhy="A light chop breaks up light and pushes baitfish onto windblown banks.";}
+  else if(wind<=18){wf=.75;wWhy="Strong wind helps the bite but hurts boat control.";}
+  else if(wind<=25){wf=.45;wWhy="Hard to fish effectively; stay in protected water.";}
+  else {wf=.15;wWhy="Unsafe on open water for most boats.";}
+  if(loc.type==="tail")wf=.5+wf*.5;
+  add("Wind",10,wf,wWhy);
+
+  const sk={clear:[.6,"Bright sun tightens fish to shade and depth."],partly:[.8,"Mixed sky gives you light changes to work."],overcast:[1,"Overcast lets fish roam and chase."],rain:[.9,"Light rain dims light and washes food in."],storm:[.15,"Lightning. Get off the water."]};
+  add("Sky",8,sk[S.sky][0],sk[S.sky][1]);
+
+  const cl={clear:[.65,"Clear water means fish see well and spook easily."],light:[1,"Light stain is the sweet spot: fish feel secure and still hunt by sight."],stained:[.85,"Stained water favors vibration and bold colors."],muddy:[.4,"Muddy water cuts the strike zone to inches."]};
+  let clF=cl[S.clarity][0]; if(spKey==="cat")clF=Math.max(clF,.85); if(spKey==="trt"&&S.clarity==="clear")clF=.8;
+  add("Clarity",9,clF,cl[S.clarity][1]);
+
+  const moveLovers=["str","cat","smb","wal","trt"];
+  const fl={stable:[.8,"Stable level keeps fish on their patterns."],rising:[.8,"Rising water floods new cover; fish move shallow."],falling:[.55,"Falling water pulls fish off the bank toward deeper cover."],moving:[moveLovers.includes(spKey)?1:.75,"Generation current positions bait and triggers feeding."]};
+  add("Level / current",8,fl[S.flow][0],fl[S.flow][1]+(loc.type==="tail"&&S.flow==="moving"?" Tailwater generation is dangerous for wading.":""));
+
+  let best=null;
+  for(const p of sol){const dist=Math.abs(t-p.t), win=p.type==="major"?H:.5*H;if(dist<=win&&(!best||p.type==="major"))best=p;}
+  const next=sol.find(p=>p.t>t);
+  let sf=.45,sWhy=`Not inside a solunar period. Next: ${next?next.type+" at "+fmtT(next.t):"—"}.`;
+  if(best){sf=best.type==="major"?1:.78;sWhy=`Inside a ${best.type} period (${best.label}, ${fmtT(best.t)}).`;}
+  add("Solunar period",8,sf,sWhy);
+
+  const dn=Math.min(age,SYN-age), df=Math.abs(age-SYN/2);
+  let mf=.6,mWhy=`${phaseName(age)}, ${Math.round(illum*100)}% lit.`;
+  if(dn<=2){mf=1;mWhy+=" Near new moon: strong solunar pull and dark nights.";}
+  else if(df<=2){mf=.9;mWhy+=" Near full moon: strong pull; night feeding may soften the morning bite.";}
+  else if(Math.abs(age-SYN/4)<=1.5||Math.abs(age-3*SYN/4)<=1.5){mf=.5;mWhy+=" Quarter moons carry the weakest pull.";}
+  add("Moon phase",6,mf,mWhy);
+
+  let score=F.reduce((s,x)=>s+x.w*x.f,0), rep=0;
+  if(S.report){rep=clamp(S.report.bite,-2,2)*4;score+=rep;}
+  score=Math.round(clamp(score,0,100));
+  render({loc,sp,spKey,when,wt,wind,sun,age,illum,sol,F,score,rep,best,next});
+}
+
+/* ---------- Recommendations ---------- */
+function colorFor(spKey,cl,sky){
+  const bright=sky==="clear";
+  if(spKey==="trt")return cl==="clear"?"Natural olive, brown, and gray; smaller flies":"Olive, black, or white streamers; larger sizes";
+  if(spKey==="cat")return "Scent over color: fresh, oily bait beats everything";
+  if(spKey==="cra")return cl==="muddy"||cl==="stained"?"Chartreuse, black/chartreuse, orange":"Blue/white, smoke, monkey milk";
+  if(cl==="clear")return bright?"Translucent shad, ghost, green pumpkin, smoke":"Chrome, pearl white, natural shad with flash";
+  if(cl==="light")return bright?"Natural shad, green pumpkin, brown":"White/chartreuse, sexy shad, gold blades";
+  if(cl==="stained")return "Chartreuse/white, firetiger, black/blue; gold or Colorado blades";
+  return "Black/blue, solid black, chartreuse; loud rattles and thumping blades";
+}
+function pickBand(spKey,wt,when){
+  const s=season(when.getMonth()), bands=PLAYBOOK[spKey], t=isFinite(wt)?wt:65;
+  for(const b of bands){if(t>b.max)continue;if(b.fall&&s!=="fall")continue;if(b.spring&&s!=="spring")continue;return b;}
+  return bands[bands.length-1];
+}
+function adjustSpeed(base,cold){
+  let s=base;
+  if(cold)s-=1;
+  if(S.pressure==="post"||S.pressure==="riseSlow")s-=1;
+  if(S.ttrend==="crash")s-=1;
+  if((S.pressure==="fallSlow"||S.pressure==="fallFast")&&base>=3)s+=1;
+  return clamp(s,1,5);
+}
+const SPEEDNAME=["","Dead slow","Slow","Moderate","Brisk","Fast"];
+function buildTips(ctx){
+  const {spKey,wind,sun,best,next,loc,when}=ctx, tips=[];
+  if(S.sky==="storm")tips.push("Lightning is in the forecast. Wait it out; no bite is worth it.");
+  if(isFinite(wind)&&wind>18)tips.push("Fish the protected side of the lake and go to heavier jigheads for bottom contact.");
+  if(S.pressure==="post")tips.push("Post-front: downsize baits, slow down by half, and fish tight to cover or deeper than yesterday.");
+  if(S.pressure==="fallSlow"||S.pressure==="fallFast")tips.push("Pre-front window: lean on moving baits and cover water before the front passes.");
+  if(isFinite(wind)&&wind>=5&&wind<=18&&!["cat","trt"].includes(spKey))tips.push("Work wind-blown points and banks first; wind pushes plankton, then shad, then predators.");
+  if(isFinite(wind)&&wind<=3&&spKey!=="cat")tips.push("Calm water: make longer casts, lighten line (fluorocarbon), and keep the boat off the spot.");
+  if(S.clarity==="clear"&&spKey!=="cat")tips.push("Clear water: drop to 8–10 lb fluorocarbon and use natural colors.");
+  if(S.clarity==="muddy")tips.push("Muddy water: fish slower and tighter to cover; choose baits with vibration and rattles.");
+  if(S.flow==="moving")tips.push(loc.type==="tail"?"Check the TVA generation schedule; anchor or drift seams, and never wade during generation.":"Generation current is on: fish current breaks, points, and eddies where bait gets pushed.");
+  if(S.flow==="falling")tips.push("Falling water: shift to the first drop-off outside where fish were on the bank.");
+  if(S.ttrend==="crash")tips.push("After a sharp temperature drop, target the warmest water (sun-facing banks in the afternoon).");
+  if(season(when.getMonth())==="fall"&&["lmb","smb","str","cra","wal"].includes(spKey))tips.push("Fall pattern: find the shad and you find the fish. Watch for gulls, flicking bait, and sonar balls in creek arms.");
+  if(spKey==="trt")tips.push("Match the hatch: turn over rocks to see what's on them, and check the generation schedule before you go.");
+  if(spKey==="cat")tips.push("Use the freshest bait you can get; cut shad loses scent after a few hours.");
+  if(spKey==="cra")tips.push("Once you catch one, mark the spot and the depth; crappie school tight.");
+  if(best)tips.push(`You're inside a ${best.type} solunar period. Fish your best spot now, not the run there.`);
+  else if(next)tips.push(`Plan to be on your best spot for the ${next.type} period at ${fmtT(next.t)}.`);
+  tips.push(`Sunrise ${fmtT(sun.rise)} and sunset ${fmtT(sun.set)}: the 90 minutes around each are your highest-percentage time.`);
+  if(S.report&&S.report.depth)tips.push(`The report puts fish at ${S.report.depth}. Start there.`);
+  return tips.slice(0,8);
+}
+
+/* ---------- Render ---------- */
+function el(tag,cls,text){const e=document.createElement(tag);if(cls)e.className=cls;if(text!=null)e.textContent=text;return e;}
+function render(ctx){
+  const {sp,spKey,when,wt,sun,age,illum,sol,F,score,rep,loc}=ctx;
+  $("scoreNum").textContent=score;
+  $("dialArc").style.strokeDashoffset=(452.4*(1-score/100)).toFixed(1);
+  const band=score>=75?["Prime","var(--good)"]:score>=55?["Good","var(--good)"]:score>=35?["Fair","var(--warn)"]:["Tough","var(--bad)"];
+  $("verdict").textContent=band[0];$("verdict").style.color=band[1];$("dialArc").style.stroke=band[1];
+  $("speciesLabel").textContent=sp.name;
+
+  const sorted=[...F].sort((a,b)=>b.w*(b.f-.7)-a.w*(a.f-.7));
+  const up=sorted.slice(0,2).map(x=>x.name.toLowerCase()), down=sorted.slice(-2).reverse().filter(x=>x.f<.7).map(x=>x.name.toLowerCase());
+  $("summary").textContent=`Working for you: ${up.join(" and ")}.`+(down.length?` Working against you: ${down.join(" and ")}.`:"")+(rep?` Report adjusted the score ${rep>0?"+":""}${rep}.`:"");
+
+  const cel=$("chips");cel.textContent="";
+  [loc.id==="custom"?`${loc.lat.toFixed(2)}, ${loc.lon.toFixed(2)}`:loc.name.split(",")[0],
+   `${when.toLocaleDateString([], {weekday:"short",month:"short",day:"numeric"})} ${fmtT(when)}`,
+   `${phaseName(age)} ${Math.round(illum*100)}%`].forEach(c=>cel.appendChild(el("span","chip",c)));
+  if(S.sky==="storm"||(isFinite(ctx.wind)&&ctx.wind>25))cel.appendChild(el("span","chip warn","Safety: stay off open water"));
+
+  const fe=$("factors");fe.textContent="";
+  const addFactor=(name,pct,color,pts,why)=>{
+    const d=el("div","factor");d.appendChild(el("span",null,name));
+    const bar=el("div","bar"),i=el("i");i.style.width=pct+"%";i.style.background=color;bar.appendChild(i);d.appendChild(bar);
+    d.appendChild(el("span","pts",pts));d.appendChild(el("div","why",why));fe.appendChild(d);};
+  F.forEach(x=>addFactor(x.name,Math.round(x.f*100),x.f>=.8?"var(--good)":x.f>=.5?"var(--warn)":"var(--bad)",`${(x.w*x.f).toFixed(1)}/${x.w}`,x.why));
+  if(S.report)addFactor("Fishing report",Math.round((S.report.bite+2)/4*100),"var(--accent)",(rep>0?"+":"")+rep,S.report.summary||"");
+
+  const b=pickBand(spKey,wt,when), cold=isFinite(wt)&&wt<sp.opt[0]-6, color=colorFor(spKey,S.clarity,S.sky);
+  const pl=$("plan");pl.textContent="";
+  const where=el("p");where.style.cssText="grid-column:1/-1;margin:0;font-size:.9rem";
+  where.appendChild(el("span","label","Where to look"));where.appendChild(document.createElement("br"));where.appendChild(document.createTextNode(b.where));
+  pl.appendChild(where);
+  let picks=[...b.p];
+  if(S.report&&S.report.baits.length){
+    const bn=S.report.baits[0];
+    picks=[P(bn.charAt(0).toUpperCase()+bn.slice(1),"Match what the report says is working",2,S.report.depth||"Per report","Local anglers are catching fish on this right now."),...picks.slice(0,2)];
+  }
+  picks.forEach((p,i)=>{
+    const s=adjustSpeed(p.speed,cold), card=el("article","lure");
+    card.appendChild(el("div","rank",i===0?"START WITH":i===1?"BACKUP":"FINESSE / FOLLOW-UP"));
+    card.appendChild(el("h3",null,p.name));
+    const dl=el("dl","kv");
+    const row=(k,v)=>{dl.appendChild(el("dt",null,k));const dd=el("dd");if(typeof v==="string")dd.textContent=v;else dd.appendChild(v);dl.appendChild(dd);};
+    row("Retrieve",p.how);
+    const sp2=el("span");sp2.appendChild(document.createTextNode(SPEEDNAME[s]));const meter=el("span","speed");
+    for(let n=1;n<=5;n++)meter.appendChild(el("i",n<=s?"on":""));sp2.appendChild(meter);row("Speed",sp2);
+    row("Depth",p.depth);row("Color",color);row("Why",p.why);
+    card.appendChild(dl);pl.appendChild(card);
+  });
+
+  const te=$("tips");te.textContent="";buildTips(ctx).forEach(t=>te.appendChild(el("li",null,t)));
+
+  const dayStart=new Date(when.getFullYear(),when.getMonth(),when.getDate()).getTime(), dayEnd=dayStart+864e5;
+  const today=sol.filter(p=>p.t>=dayStart&&p.t<dayEnd);
+  const sky=$("sky");sky.textContent="";
+  [["Sunrise",fmtT(sun.rise)],["Sunset",fmtT(sun.set)],["Moon",`${phaseName(age)}, ${Math.round(illum*100)}%`],
+   ["Major periods (±1 hr)",today.filter(p=>p.type==="major").map(p=>fmtT(p.t)).join(" · ")||"—"],
+   ["Minor periods (±30 min)",today.filter(p=>p.type==="minor").map(p=>fmtT(p.t)).join(" · ")||"—"]].forEach(([k,v])=>{
+    const d=el("div");d.appendChild(el("span","label",k));d.appendChild(el("b",null,v));sky.appendChild(d);});
+  drawTimeline(dayStart,sun,today,when);
+
+  const nm=loc.id==="custom"?"fishing report":loc.name.split(",")[0]+" fishing report";
+  const L=[["NWS point forecast",`https://forecast.weather.gov/MapClick.php?lat=${loc.lat}&lon=${loc.lon}`],
+    ["Search latest fishing reports",`https://www.google.com/search?q=${encodeURIComponent(nm)}&tbs=qdr:w`],
+    ["TWRA fishing","https://www.tn.gov/twra/fishing.html"]];
+  if(loc.tva||loc.type==="tail")L.splice(1,0,["TVA lake levels & generation","https://www.tva.com/environment/lake-levels"]);
+  const le=$("links");le.textContent="";
+  L.forEach(([t,u])=>{const a=el("a",null,t+" ↗");a.href=u;a.target="_blank";a.rel="noopener";le.appendChild(a);});
+}
+function drawTimeline(start,sun,periods,when){
+  const W=640,x=t=>16+(t-start)/864e5*(W-32);
+  let s=`<svg viewBox="0 0 ${W} 74" role="img" aria-label="Day timeline of daylight and solunar periods">`;
+  s+=`<rect x="16" y="22" width="${W-32}" height="18" fill="var(--deep-soft)"/>`;
+  s+=`<rect x="${x(sun.rise.getTime())}" y="22" width="${Math.max(0,x(sun.set.getTime())-x(sun.rise.getTime()))}" height="18" fill="var(--line)"/>`;
+  periods.forEach(p=>{const half=p.type==="major"?36e5:18e5,x1=Math.max(16,x(p.t-half)),x2=Math.min(W-16,x(p.t+half));
+    if(x2>x1)s+=`<rect x="${x1}" y="${p.type==="major"?18:24}" width="${x2-x1}" height="${p.type==="major"?26:14}" fill="var(--accent)" opacity="${p.type==="major"?.85:.5}"/>`;});
+  [0,6,12,18,24].forEach(h=>{const xx=x(start+h*36e5);s+=`<line x1="${xx}" x2="${xx}" y1="44" y2="50" stroke="var(--muted)"/><text x="${xx}" y="64" font-size="11" text-anchor="middle" fill="var(--muted)" font-family="IBM Plex Mono,monospace">${h===0||h===24?"12a":h===12?"12p":h<12?h+"a":(h-12)+"p"}</text>`;});
+  const wx=x(when.getTime());if(wx>=16&&wx<=W-16)s+=`<line x1="${wx}" x2="${wx}" y1="8" y2="48" stroke="var(--ink)" stroke-width="2"/><text x="${wx}" y="10" font-size="10" text-anchor="middle" fill="var(--ink)" font-family="IBM Plex Mono,monospace">YOU</text>`;
+  $("timeline").innerHTML=s+"</svg>";
+}
+
+/* ---------- Report scan (keyword-based, runs in the browser) ---------- */
+const BAITWORDS=["live shad","shad","minnow","jig","crankbait","squarebill","jerkbait","spinnerbait","topwater","swimbait","ned rig","drop shot","tube","worm","nightcrawler","cut bait","alabama rig","umbrella rig","blade bait","float-n-fly","midge","nymph","spoon","cricket","frog","buzzbait","lipless","chatterbait","bladed jig"];
+function scanReport(txt){
+  const t=txt.toLowerCase(); let bite=0;
+  if(/(excellent|on fire|great|hot bite|limits?|good numbers|strong)/.test(t))bite+=1;
+  if(/(very good|outstanding|best)/.test(t))bite+=1;
+  if(/(slow|tough|poor|few fish|scattered|inconsistent)/.test(t))bite-=1;
+  if(/(very slow|dead|nothing)/.test(t))bite-=1;
+  const dm=t.match(/(\d{1,2})\s*(?:-|to|–)\s*(\d{1,2})\s*(?:ft|feet|foot)/)||t.match(/(\d{1,2})\s*(?:ft|feet|foot)/);
+  const depth=dm?(dm[2]?`${dm[1]}–${dm[2]} ft`:`${dm[1]} ft`):null;
+  const baits=BAITWORDS.filter(b=>t.includes(b)).slice(0,3);
+  const wm=t.match(/(?:water|surface)[^.\d]{0,25}(\d{2}(?:\.\d)?)\s*(?:°|degrees|deg)/);
+  bite=clamp(bite,-2,2);
+  return {bite,depth,baits,waterTemp:wm?parseFloat(wm[1]):null,
+    summary:`${bite>0?"Positive":bite<0?"Negative":"Neutral"} bite${depth?", fish at "+depth:""}${baits.length?", baits mentioned: "+baits.join(", "):""}.`};
+}
+function readReport(){
+  const txt=$("report").value.trim();
+  if(!txt){$("reportStatus").textContent="Paste a report first.";return;}
+  S.report=scanReport(txt);
+  let msg="Report scanned.";
+  if(S.report.waterTemp&&SRC.wtemp!=="live"){$("wtemp").value=S.report.waterTemp;setSrc("wtemp","report");msg+=` Water temp ${S.report.waterTemp}°F pulled from it.`;}
+  $("reportStatus").textContent=msg;save();compute();
+}
+
+/* ---------- Live data (fetched directly by the browser; no account or key) ---------- */
+function setSeg(key,val){S[key]=val;document.querySelectorAll(`.seg[data-key="${key}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===val)));}
+function setSrc(field,kind){SRC[field]=kind;const e=$("src-"+field);if(!e)return;e.className="src "+(kind==="live"?"live":"manual");e.textContent=kind==="live"?"● live":kind==="report"?"● from report":kind==="manual"?"● manual":"";}
+function wmoToSky(code,cloud){
+  if(code>=95)return "storm";
+  if((code>=51&&code<=67)||(code>=80&&code<=82))return "rain";
+  if(code>=71&&code<=77||code===85||code===86)return "overcast";
+  if(code===45||code===48||code===3)return "overcast";
+  if(code===2)return "partly";
+  if(isFinite(cloud)&&cloud>=85)return "overcast";
+  if(isFinite(cloud)&&cloud>=30)return "partly";
+  return "clear";
+}
+const WMO={0:"Clear",1:"Mostly clear",2:"Partly cloudy",3:"Overcast",45:"Fog",48:"Freezing fog",51:"Light drizzle",53:"Drizzle",55:"Heavy drizzle",61:"Light rain",63:"Rain",65:"Heavy rain",66:"Freezing rain",67:"Freezing rain",71:"Light snow",73:"Snow",75:"Heavy snow",77:"Snow grains",80:"Rain showers",81:"Rain showers",82:"Heavy showers",85:"Snow showers",86:"Snow showers",95:"Thunderstorms",96:"Thunderstorms with hail",99:"Thunderstorms with hail"};
+function pressureTrend(dInHg){
+  if(dInHg<=-0.06)return "fallFast"; if(dInHg<=-0.02)return "fallSlow";
+  if(dInHg<0.02)return "stable"; if(dInHg<0.06)return "riseSlow"; return "post";
+}
+async function getJSON(url,ms){
+  const ctl=new AbortController(),tm=setTimeout(()=>ctl.abort(),ms||15000);
+  try{const r=await fetch(url,{signal:ctl.signal,headers:{Accept:"application/json, application/geo+json"}});if(!r.ok)throw new Error("HTTP "+r.status);return await r.json();}
+  finally{clearTimeout(tm);}
+}
+async function fetchWeather(loc){
+  const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`+
+    `&current=temperature_2m,wind_speed_10m,wind_gusts_10m,pressure_msl,cloud_cover,weather_code`+
+    `&hourly=pressure_msl&past_hours=6&forecast_hours=1&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+  const j=await getJSON(u);
+  const c=j.current, now=new Date(c.time).getTime();
+  let trend=null, delta=null;
+  if(j.hourly&&j.hourly.time){
+    let bi=-1,bd=1e15;
+    j.hourly.time.forEach((tt,i)=>{const d=Math.abs(new Date(tt).getTime()-(now-3*36e5));if(d<bd&&j.hourly.pressure_msl[i]!=null){bd=d;bi=i;}});
+    if(bi>=0&&bd<=1.5*36e5){delta=(c.pressure_msl-j.hourly.pressure_msl[bi])*0.02953;trend=pressureTrend(delta);}
+  }
+  return {air:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m),gust:Math.round(c.wind_gusts_10m),
+    baro:+(c.pressure_msl*0.02953).toFixed(2),sky:wmoToSky(c.weather_code,c.cloud_cover),skyText:WMO[c.weather_code]||"",trend,delta};
+}
+async function fetchForecast(loc){
+  const p=await getJSON(`https://api.weather.gov/points/${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}`,10000);
+  const f=await getJSON(p.properties.forecast,10000);
+  const per=f.properties.periods.slice(0,2);
+  return per.map(x=>`${x.name}: ${x.shortForecast}, ${x.isDaytime?"high":"low"} ${x.temperature}°${x.temperatureUnit}${x.windSpeed?", wind "+x.windSpeed:""}`).join(". ");
+}
+async function fetchGauges(loc){
+  // USGS instantaneous values: water temp (00010, °C) and discharge (00060, cfs) within ~25 miles, past 3 days.
+  const dLat=0.36,dLon=0.45;
+  const box=[loc.lon-dLon,loc.lat-dLat,loc.lon+dLon,loc.lat+dLat].map(v=>v.toFixed(4)).join(",");
+  const j=await getJSON(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${box}&parameterCd=00010,00060&period=P3D&siteStatus=active`,20000);
+  const out={temp:null,flow:null};
+  (j.value&&j.value.timeSeries||[]).forEach(ts=>{
+    const code=ts.variable.variableCode[0].value, nd=ts.variable.noDataValue;
+    const vals=(ts.values[0]&&ts.values[0].value||[]).filter(v=>v.value!==""&&+v.value!==nd&&+v.value>-9999).map(v=>({t:new Date(v.dateTime).getTime(),v:+v.value}));
+    if(!vals.length)return;
+    const last=vals[vals.length-1];
+    if(Date.now()-last.t>36*36e5)return;
+    const g=ts.sourceInfo.geoLocation.geogLocation, dist=miles(loc.lat,loc.lon,g.latitude,g.longitude);
+    const rec={site:ts.sourceInfo.siteName,id:ts.sourceInfo.siteCode[0].value,dist,last,vals};
+    if(code==="00010"&&(!out.temp||dist<out.temp.dist))out.temp=rec;
+    if(code==="00060"&&(!out.flow||dist<out.flow.dist))out.flow=rec;
+  });
+  return out;
+}
+const cToF=c=>+(c*9/5+32).toFixed(1);
+function titleCase(s){return s.toLowerCase().replace(/\b([a-z])/g,m=>m.toUpperCase()).replace(/\bTn\b/,"TN");}
+
+async function refresh(){
+  const loc=getLoc(), btn=$("refreshBtn"), dot=$("liveDot");
+  btn.disabled=true;dot.className="dot busy";$("liveTitle").textContent="Refreshing…";
+  const list=$("sources");list.textContent="";
+  const line=(state,text)=>{const li=el("li");li.appendChild(el("span",state==="ok"?"ok":state==="no"?"no":"na",state==="ok"?"✓":state==="no"?"✕":"–"));li.appendChild(el("span",null,text));list.appendChild(li);};
+  const [w,fc,g]=await Promise.allSettled([fetchWeather(loc),fetchForecast(loc),fetchGauges(loc)]);
+  let okCount=0;
+
+  if(w.status==="fulfilled"){
+    const d=w.value;okCount++;
+    $("atemp").value=d.air;setSrc("atemp","live");
+    $("wind").value=d.wind;setSrc("wind","live");
+    $("baro").value=d.baro.toFixed(2);setSrc("baro","live");
+    setSeg("sky",d.sky);setSrc("sky","live");
+    if(d.trend){setSeg("pressure",d.trend);setSrc("pressure","live");}
+    line("ok",`Weather: ${d.air}°F, ${d.skyText||d.sky}, wind ${d.wind} mph (gusts ${d.gust}), ${d.baro.toFixed(2)} inHg`+
+      (d.delta!=null?`, ${d.delta>=0?"+":""}${d.delta.toFixed(2)} in 3 hr`:", trend unavailable"));
+  } else line("no","Weather didn't load. Check your connection and refresh again.");
+
+  if(fc.status==="fulfilled"){okCount++;$("liveFc").textContent=fc.value;}
+  else{$("liveFc").textContent="";line("na","NWS forecast text unavailable right now.");}
+
+  if(g.status==="fulfilled"){
+    okCount++;
+    const {temp,flow}=g.value;
+    if(temp){
+      const f=cToF(temp.last.v);
+      $("wtemp").value=f;setSrc("wtemp","live");
+      const old=temp.vals.find(v=>v.t>=temp.last.t-72*36e5);
+      if(old&&temp.last.t-old.t>=36*36e5){
+        const dF=(temp.last.v-old.v)*9/5;
+        setSeg("ttrend",dF<=-5?"crash":dF<=-1.5?"down":dF>=2?"up":"flat");setSrc("ttrend","live");
+      }
+      line("ok",`Water temp: ${f}°F at ${titleCase(temp.site)} (${temp.dist.toFixed(0)} mi away, ${fmtT(temp.last.t)})`);
+    } else line("na","No active water-temp gauge within ~25 mi. Enter water temp by hand.");
+    if(flow&&flow.dist<=15){
+      const cfs=Math.round(flow.last.v), six=flow.vals.find(v=>v.t>=flow.last.t-6*36e5);
+      const ch=six&&six.v>0?(flow.last.v-six.v)/six.v:0;
+      if(loc.type==="tail"){setSeg("flow",cfs>=1500||ch>0.5?"moving":"stable");setSrc("flow","live");}
+      line("ok",`Flow: ${cfs.toLocaleString()} cfs at ${titleCase(flow.site)} (${flow.dist.toFixed(0)} mi)${ch>0.25?", rising":ch<-0.25?", dropping":""}`);
+    }
+  } else line("no","USGS gauges didn't load. Enter water temp by hand.");
+
+  lastLive=Date.now();
+  dot.className="dot "+(okCount?"on":"err");
+  $("liveTitle").textContent=okCount?`Refreshed ${fmtT(lastLive)}`:"Refresh failed";
+  btn.disabled=false;
+  if(okCount){userEdited=true;$("exampleNote").hidden=true;}
+  save();compute();
+}
+
+/* ---------- Init ---------- */
+function save(){
+  try{localStorage.setItem("biteWindow2",JSON.stringify({water:$("water").value,species:$("species").value,wtemp:$("wtemp").value,atemp:$("atemp").value,wind:$("wind").value,baro:$("baro").value,lat:$("lat").value,lon:$("lon").value,ctype:$("ctype").value,pressure:S.pressure,sky:S.sky,clarity:S.clarity,flow:S.flow,ttrend:S.ttrend,report:$("report").value}));}catch(e){}
+}
+const LIVE_FIELDS=["wtemp","atemp","wind","baro","pressure","sky","flow","ttrend"];
+function changed(src){
+  userEdited=true;$("exampleNote").hidden=true;
+  if(LIVE_FIELDS.includes(src))setSrc(src,"manual");
+  save();compute();
+}
+function setWhenNow(){
+  const d=new Date(),pad=n=>String(n).padStart(2,"0");
+  $("when").value=`${d.getFullYear()}-${pad(d.getMonth()+1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+function init(){
+  WATERS.forEach(w=>{const o=el("option",null,w.name);o.value=w.id;$("water").appendChild(o);});
+  Object.entries(SP).forEach(([k,v])=>{const o=el("option",null,v.name);o.value=k;$("species").appendChild(o);});
+  $("species").value="lmb";
+  setWhenNow();
+  $("report").value="Melton Hill: Bass fair to good. Shad moving into the creeks; fish are chasing on the backs of pockets early with squarebills and spinnerbaits, then pulling out to 10–15 ft on secondary points mid-morning. Crappie picking up on brush in 12–18 ft.";
+  try{const sv=JSON.parse(localStorage.getItem("biteWindow2")||"null");
+    if(sv){["water","species","wtemp","atemp","wind","baro","lat","lon","ctype"].forEach(k=>{if(sv[k]!=null&&sv[k]!=="")$(k).value=sv[k];});
+      ["pressure","sky","clarity","flow","ttrend"].forEach(k=>{if(sv[k])S[k]=sv[k];});
+      if(sv.report!=null)$("report").value=sv.report;userEdited=true;}}catch(e){}
+
+  document.querySelectorAll(".seg").forEach(seg=>{
+    const key=seg.dataset.key;
+    seg.querySelectorAll("button").forEach(b=>{
+      b.type="button";b.setAttribute("aria-pressed",String(b.dataset.v===S[key]));
+      b.addEventListener("click",()=>{setSeg(key,b.dataset.v);changed(key);});
+    });
+  });
+  ["species","when","wtemp","atemp","wind","baro","lat","lon","ctype"].forEach(id=>$(id).addEventListener("input",()=>changed(id)));
+  $("water").addEventListener("change",()=>{$("customLoc").hidden=$("water").value!=="custom";changed("water");refresh();});
+  $("customLoc").hidden=$("water").value!=="custom";
+  $("report").addEventListener("input",()=>{S.report=null;$("reportStatus").textContent="";save();compute();});
+  $("readReport").addEventListener("click",readReport);
+  $("refreshBtn").addEventListener("click",refresh);
+  $("geoBtn").addEventListener("click",()=>{
+    if(!navigator.geolocation){$("geoStatus").textContent="This browser can't share location. Enter coordinates.";return;}
+    $("geoStatus").textContent="Finding you…";
+    navigator.geolocation.getCurrentPosition(p=>{
+      $("lat").value=p.coords.latitude.toFixed(4);$("lon").value=p.coords.longitude.toFixed(4);
+      $("geoStatus").textContent="Location set.";changed("lat");refresh();
+    },e=>{$("geoStatus").textContent=e.code===1?"Location permission was denied. Enter coordinates instead.":"Couldn't get your location. Enter coordinates instead.";},{enableHighAccuracy:false,timeout:12000,maximumAge:300000});
+  });
+  $("exampleNote").hidden=userEdited;
+  compute();
+  refresh(); // pull current conditions when the page opens; tap Refresh anytime after
+}
+init();
+})();
+</script>
+</body>
+</html>
