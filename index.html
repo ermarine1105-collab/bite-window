@@ -52,7 +52,7 @@ input:focus-visible,select:focus-visible,textarea:focus-visible,button:focus-vis
 .btn:disabled{opacity:.55;cursor:default}
 .example{font-size:.78rem;background:var(--deep-soft);color:var(--deep);border-radius:4px;padding:6px 10px}
 .src{font-size:.68rem;font-family:var(--f-mono);letter-spacing:.04em;margin-left:6px;text-transform:none}
-.src.live{color:var(--good)} .src.manual{color:var(--warn)}
+.src.s-live{color:var(--good)} .src.s-manual{color:var(--warn)}
 .live{border:1px solid var(--deep);border-radius:6px;padding:10px 12px;display:grid;gap:8px;background:var(--deep-soft)}
 .live-head{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap}
 .live-title{display:flex;align-items:center;gap:8px;font-weight:600;font-size:.9rem;color:var(--deep)}
@@ -101,6 +101,22 @@ ul.tips{margin:0;padding-left:18px;display:grid;gap:6px;font-size:.9rem}
 .links{display:flex;flex-wrap:wrap;gap:8px 14px;font-size:.86rem}
 .links a{color:var(--deep);font-weight:500}
 .status{font-size:.82rem;color:var(--muted);min-height:1.2em}
+/* barometer chart */
+.baro-sum{margin:0 0 6px;font-size:.92rem}
+.chartbox{width:100%;min-width:0}
+.chartbox svg{display:block;width:100%;height:auto;touch-action:pan-y;cursor:crosshair;user-select:none;-webkit-user-select:none}
+.gl{stroke:var(--line);stroke-width:1}
+.gl.day{stroke-dasharray:2 4}
+.axt{fill:var(--muted);font:11px var(--f-mono)}
+.axt.now{fill:var(--ink);font-weight:500}
+.barea{fill:var(--deep-soft);opacity:.7}
+.bline{fill:none;stroke:var(--deep);stroke-width:2;stroke-linejoin:round;stroke-linecap:round}
+.bline.fut{stroke-dasharray:6 4}
+.nowl{stroke:var(--ink);stroke-width:1.5}
+.dotp{fill:var(--panel);stroke:var(--deep);stroke-width:2}
+.cur{stroke:var(--muted);stroke-width:1}
+.readout{font-family:var(--f-mono);font-size:.78rem;min-height:1.4em;margin:8px 0 0;overflow-wrap:anywhere}
+.bnote{font-size:.78rem;color:var(--muted);margin:8px 0 0}
 footer{color:var(--muted);font-size:.78rem;max-width:80ch}
 footer a{color:inherit}
 .dial circle.val{transition:stroke-dashoffset .5s ease}
@@ -207,6 +223,13 @@ footer a{color:inherit}
 
       <section class="panel"><h2>Game plan</h2><div class="plan" id="plan"></div></section>
       <section class="panel"><h2>Moves that raise your odds</h2><ul class="tips" id="tips"></ul></section>
+      <section class="panel">
+        <h2>Barometric pressure</h2>
+        <p class="baro-sum" id="baroSummary">Tap Refresh conditions to load the pressure chart.</p>
+        <div class="chartbox" id="baroChart"></div>
+        <div class="readout" id="baroReadout"></div>
+        <p class="bnote">Solid line: the past 24 hours. Dashed line: the forecast for the next 48 hours. Tap or hover the chart for any hour.</p>
+      </section>
       <section class="panel"><h2>Score drivers</h2><div class="factors" id="factors"></div></section>
       <section class="panel">
         <h2>Sun &amp; moon</h2>
@@ -412,7 +435,7 @@ const PLAYBOOK={
 /* ---------- State ---------- */
 const S={pressure:"fallSlow",sky:"partly",clarity:"light",flow:"stable",ttrend:"down",report:null};
 const SRC={}; // field -> "live" | "manual"
-let userEdited=false, lastLive=null;
+let userEdited=false, lastLive=null, BARO=null;
 
 /* ---------- Astronomy ---------- */
 const RAD=Math.PI/180, SYN=29.530588853;
@@ -698,7 +721,7 @@ function readReport(){
 
 /* ---------- Live data (fetched directly by the browser; no account or key) ---------- */
 function setSeg(key,val){S[key]=val;document.querySelectorAll(`.seg[data-key="${key}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===val)));}
-function setSrc(field,kind){SRC[field]=kind;const e=$("src-"+field);if(!e)return;e.className="src "+(kind==="live"?"live":"manual");e.textContent=kind==="live"?"● live":kind==="report"?"● from report":kind==="manual"?"● manual":"";}
+function setSrc(field,kind){SRC[field]=kind;const e=$("src-"+field);if(!e)return;e.className="src "+(kind==="live"?"s-live":"s-manual");e.textContent=kind==="live"?"● live":kind==="report"?"● from report":kind==="manual"?"● manual":"";}
 function wmoToSky(code,cloud){
   if(code>=95)return "storm";
   if((code>=51&&code<=67)||(code>=80&&code<=82))return "rain";
@@ -719,20 +742,25 @@ async function getJSON(url,ms){
   try{const r=await fetch(url,{signal:ctl.signal,headers:{Accept:"application/json, application/geo+json"}});if(!r.ok)throw new Error("HTTP "+r.status);return await r.json();}
   finally{clearTimeout(tm);}
 }
+const wallOf=s=>{const m=s.match(/(\d+)-(\d+)-(\d+)T(\d+):(\d+)/);return Date.UTC(+m[1],+m[2]-1,+m[3],+m[4],+m[5]);};
 async function fetchWeather(loc){
   const u=`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`+
     `&current=temperature_2m,wind_speed_10m,wind_gusts_10m,pressure_msl,cloud_cover,weather_code`+
-    `&hourly=pressure_msl&past_hours=6&forecast_hours=1&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
+    `&hourly=pressure_msl&past_hours=24&forecast_hours=49&temperature_unit=fahrenheit&wind_speed_unit=mph&timezone=auto`;
   const j=await getJSON(u);
   const c=j.current, now=new Date(c.time).getTime();
-  let trend=null, delta=null;
+  let trend=null, delta=null, series=null;
   if(j.hourly&&j.hourly.time){
     let bi=-1,bd=1e15;
     j.hourly.time.forEach((tt,i)=>{const d=Math.abs(new Date(tt).getTime()-(now-3*36e5));if(d<bd&&j.hourly.pressure_msl[i]!=null){bd=d;bi=i;}});
     if(bi>=0&&bd<=1.5*36e5){delta=(c.pressure_msl-j.hourly.pressure_msl[bi])*0.02953;trend=pressureTrend(delta);}
+    // hourly series for the chart; times kept as the lake's local clock time
+    const off=(j.utc_offset_seconds||0)*1000, pts=[];
+    j.hourly.time.forEach((tt,i)=>{const p=j.hourly.pressure_msl[i];if(p!=null){const lk=wallOf(tt);pts.push({lk,ts:lk-off,p:p*0.02953});}});
+    if(pts.length>=12){const curWall=wallOf(c.time);let ni=0;pts.forEach((x,i)=>{if(x.lk<=curWall)ni=i;});series={pts,nowIdx:ni,curP:c.pressure_msl*0.02953};}
   }
   return {air:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m),gust:Math.round(c.wind_gusts_10m),
-    baro:+(c.pressure_msl*0.02953).toFixed(2),sky:wmoToSky(c.weather_code,c.cloud_cover),skyText:WMO[c.weather_code]||"",trend,delta};
+    baro:+(c.pressure_msl*0.02953).toFixed(2),sky:wmoToSky(c.weather_code,c.cloud_cover),skyText:WMO[c.weather_code]||"",trend,delta,series};
 }
 async function fetchForecast(loc){
   const p=await getJSON(`https://api.weather.gov/points/${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}`,10000);
@@ -762,6 +790,65 @@ async function fetchGauges(loc){
 const cToF=c=>+(c*9/5+32).toFixed(1);
 function titleCase(s){return s.toLowerCase().replace(/\b([a-z])/g,m=>m.toUpperCase()).replace(/\bTn\b/,"TN");}
 
+/* ---------- Barometric pressure chart (past 24 hr + next 48 hr) ---------- */
+const WDAY=["Sun","Mon","Tue","Wed","Thu","Fri","Sat"];
+const TREND_WORD={fallFast:"falling fast",fallSlow:"falling",stable:"steady",riseSlow:"rising",post:"rising fast"};
+const lkHour=w=>{const h=new Date(w).getUTCHours();return (h%12||12)+(h<12?" AM":" PM");};
+const lkStamp=w=>WDAY[new Date(w).getUTCDay()]+" "+lkHour(w);
+function chg(v){return Math.abs(v)<0.005?"no change":(v<0?"down ":"up ")+Math.abs(v).toFixed(2)+" inHg";}
+function renderBaro(){
+  const box=$("baroChart");
+  if(!BARO){$("baroSummary").textContent="Pressure history didn't load. Tap Refresh conditions to try again.";box.textContent="";$("baroReadout").textContent="";return;}
+  const {pts,nowIdx}=BARO, n=pts.length, pNow=pts[nowIdx].p;
+  const back=pts[Math.max(0,nowIdx-24)].p, fwd24=pts[Math.min(n-1,nowIdx+24)].p, fwd48=pts[n-1].p;
+  $("baroSummary").textContent=`Now ${pNow.toFixed(2)} inHg. Past 24 hours: ${chg(pNow-back)}. Next 24 hours: ${chg(fwd24-pNow)}. Next 48 hours: ${chg(fwd48-pNow)}.`;
+  const W=Math.max(300,Math.floor(box.clientWidth||640)), H=W<520?220:260, narrow=W<520;
+  const m={l:44,r:12,t:18,b:28}, iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const ps=pts.map(x=>x.p), lo=Math.min(...ps), hi=Math.max(...ps);
+  const step=(hi-lo)>0.5?0.1:0.05;
+  const yMin=Math.floor((lo-0.02)/step+1e-9)*step, yMax=Math.ceil((hi+0.02)/step-1e-9)*step;
+  const X=i=>m.l+i/(n-1)*iw, Y=p=>m.t+(1-(p-yMin)/(yMax-yMin))*ih, f1=v=>v.toFixed(1);
+  let s=`<svg id="baroSvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Barometric pressure, past 24 hours and next 48 hours. ${$("baroSummary").textContent}">`;
+  s+=`<text class="axt" x="${m.l-6}" y="11" text-anchor="end">inHg</text>`;
+  for(let v=yMin;v<=yMax+1e-9;v+=step){const y=f1(Y(v));s+=`<line class="gl" x1="${m.l}" x2="${W-m.r}" y1="${y}" y2="${y}"/><text class="axt" x="${m.l-6}" y="${f1(+y+4)}" text-anchor="end">${v.toFixed(2)}</text>`;}
+  // x-axis: midnight dividers with day names; time ticks every 6 hr (12 hr on narrow screens)
+  const tickEvery=narrow?12:6;
+  for(let i=0;i<n;i++){
+    const d=new Date(pts[i].lk), hh=d.getUTCHours();
+    if(hh===0&&i>0)s+=`<line class="gl day" x1="${f1(X(i))}" x2="${f1(X(i))}" y1="${m.t}" y2="${m.t+ih}"/>`;
+    if(hh%tickEvery===0){
+      const lab=hh===0?WDAY[d.getUTCDay()]:hh===12?"12p":(hh%12)+(hh<12?"a":"p");
+      const x=X(i);if(x>m.l+10&&x<W-m.r-10)s+=`<text class="axt" x="${f1(x)}" y="${H-8}" text-anchor="middle"${hh===0?' font-weight="600"':""}>${lab}</text>`;
+    }
+  }
+  const pt=i=>`${f1(X(i))},${f1(Y(pts[i].p))}`;
+  let all="";for(let i=0;i<n;i++)all+=(i?"L":"M")+pt(i);
+  s+=`<path class="barea" d="${all}L${f1(X(n-1))},${m.t+ih}L${f1(X(0))},${m.t+ih}Z"/>`;
+  let past="",fut="";
+  for(let i=0;i<=nowIdx;i++)past+=(i?"L":"M")+pt(i);
+  for(let i=nowIdx;i<n;i++)fut+=(i===nowIdx?"M":"L")+pt(i);
+  s+=`<path class="bline" d="${past}"/><path class="bline fut" d="${fut}"/>`;
+  const nx=X(nowIdx);
+  s+=`<line class="nowl" x1="${f1(nx)}" x2="${f1(nx)}" y1="${m.t}" y2="${m.t+ih}"/><text class="axt now" x="${f1(nx+5)}" y="${m.t+12}">NOW</text><circle class="dotp" cx="${f1(nx)}" cy="${f1(Y(pNow))}" r="4.5"/>`;
+  s+=`<line id="baroCur" class="cur" x1="0" x2="0" y1="${m.t}" y2="${m.t+ih}" visibility="hidden"/><circle id="baroDot" class="dotp" cx="0" cy="0" r="4.5" visibility="hidden"/>`;
+  s+=`<rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
+  box.innerHTML=s;
+  const svg=$("baroSvg"), cur=$("baroCur"), dot=$("baroDot"), out=$("baroReadout");
+  const show=(i,reset)=>{
+    const h=pts[i], d3=i>=3?h.p-pts[i-3].p:0;
+    out.textContent=`${reset?"Now · ":""}${lkStamp(h.lk)} · ${h.p.toFixed(2)} inHg, ${TREND_WORD[pressureTrend(d3)]} (${d3>=0?"+":""}${d3.toFixed(2)} in 3 hr)${i>nowIdx?" · forecast":""}`;
+    const vis=reset?"hidden":"visible";cur.setAttribute("visibility",vis);dot.setAttribute("visibility",vis);
+    if(reset)return;
+    cur.setAttribute("x1",f1(X(i)));cur.setAttribute("x2",f1(X(i)));dot.setAttribute("cx",f1(X(i)));dot.setAttribute("cy",f1(Y(h.p)));
+  };
+  const move=e=>{const r=svg.getBoundingClientRect();const x=(e.clientX-r.left)*(W/r.width);show(clamp(Math.round((x-m.l)/iw*(n-1)),0,n-1),false);};
+  svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);
+  svg.addEventListener("pointerleave",()=>show(nowIdx,true));
+  show(nowIdx,true);
+}
+let rzT=null;
+window.addEventListener("resize",()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(BARO)renderBaro();},150);});
+
 async function refresh(){
   const loc=getLoc(), btn=$("refreshBtn"), dot=$("liveDot");
   btn.disabled=true;dot.className="dot busy";$("liveTitle").textContent="Refreshing…";
@@ -777,9 +864,10 @@ async function refresh(){
     $("baro").value=d.baro.toFixed(2);setSrc("baro","live");
     setSeg("sky",d.sky);setSrc("sky","live");
     if(d.trend){setSeg("pressure",d.trend);setSrc("pressure","live");}
+    BARO=d.series;
     line("ok",`Weather: ${d.air}°F, ${d.skyText||d.sky}, wind ${d.wind} mph (gusts ${d.gust}), ${d.baro.toFixed(2)} inHg`+
       (d.delta!=null?`, ${d.delta>=0?"+":""}${d.delta.toFixed(2)} in 3 hr`:", trend unavailable"));
-  } else line("no","Weather didn't load. Check your connection and refresh again.");
+  } else {BARO=null;line("no","Weather didn't load. Check your connection and refresh again.");}
 
   if(fc.status==="fulfilled"){okCount++;$("liveFc").textContent=fc.value;}
   else{$("liveFc").textContent="";line("na","NWS forecast text unavailable right now.");}
@@ -810,7 +898,7 @@ async function refresh(){
   $("liveTitle").textContent=okCount?`Refreshed ${fmtT(lastLive)}`:"Refresh failed";
   btn.disabled=false;
   if(okCount){userEdited=true;$("exampleNote").hidden=true;}
-  save();compute();
+  save();compute();renderBaro();
 }
 
 /* ---------- Init ---------- */
