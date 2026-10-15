@@ -241,7 +241,7 @@ footer a{color:inherit}
     </div>
   </div>
 
-  <footer>Scoring is a weighted heuristic built on common angling guidance (temperature preference, front behavior, light, wind, solunar timing). It is not trained on catch data, so treat the number as a planning aid. Air readings are modeled for the exact spot; water readings come from the nearest USGS gauge, which may be miles away. Check the forecast and generation schedule before launching.
+  <footer>Scoring is a weighted heuristic built on common angling guidance (temperature preference, front behavior, light, wind, solunar timing). It is not trained on catch data, so treat the number as a planning aid. Air readings are modeled for the exact spot; water readings come from the nearest USGS gauge, which may be miles away. When no gauge is in range, lake water temperature is estimated from the past six weeks of air temperatures and can be off by 5°F or more. Check the forecast and generation schedule before launching.
   Weather data by <a href="https://open-meteo.com/" target="_blank" rel="noopener">Open-Meteo.com</a> (CC BY 4.0). Forecast text from the National Weather Service. Water data from the U.S. Geological Survey.</footer>
 </div>
 
@@ -721,7 +721,7 @@ function readReport(){
 
 /* ---------- Live data (fetched directly by the browser; no account or key) ---------- */
 function setSeg(key,val){S[key]=val;document.querySelectorAll(`.seg[data-key="${key}"] button`).forEach(b=>b.setAttribute("aria-pressed",String(b.dataset.v===val)));}
-function setSrc(field,kind){SRC[field]=kind;const e=$("src-"+field);if(!e)return;e.className="src "+(kind==="live"?"s-live":"s-manual");e.textContent=kind==="live"?"● live":kind==="report"?"● from report":kind==="manual"?"● manual":"";}
+function setSrc(field,kind){SRC[field]=kind;const e=$("src-"+field);if(!e)return;e.className="src "+(kind==="live"?"s-live":"s-manual");e.textContent=kind==="live"?"● live":kind==="est"?"● estimated ±5°F":kind==="report"?"● from report":kind==="manual"?"● manual":"";}
 function wmoToSky(code,cloud){
   if(code>=95)return "storm";
   if((code>=51&&code<=67)||(code>=80&&code<=82))return "rain";
@@ -762,16 +762,74 @@ async function fetchWeather(loc){
   return {air:Math.round(c.temperature_2m),wind:Math.round(c.wind_speed_10m),gust:Math.round(c.wind_gusts_10m),
     baro:+(c.pressure_msl*0.02953).toFixed(2),sky:wmoToSky(c.weather_code,c.cloud_cover),skyText:WMO[c.weather_code]||"",trend,delta,series};
 }
+/* Estimated surface water temp from air temp. Generic S-curve (after Mohseni et al. 1998), lake-tuned and NOT
+   calibrated to local gauges: the weighted 6-week air average drives it (lakes lag air by weeks), floors near 37°F
+   and tops out near 88°F. Daily means come from Open-Meteo. */
+async function fetchAirHist(loc){
+  const j=await getJSON(`https://api.open-meteo.com/v1/forecast?latitude=${loc.lat}&longitude=${loc.lon}`+
+    `&daily=temperature_2m_mean&past_days=45&forecast_days=1&temperature_unit=fahrenheit&timezone=auto`);
+  const v=(j.daily&&j.daily.temperature_2m_mean)||[];
+  return v.slice(0,-1); // oldest to newest, today dropped (incomplete)
+}
+function estWaterTemp(days){
+  if(!days)return null;
+  let sw=0,sa=0,n=0;
+  for(let k=0;k<days.length;k++){
+    const t=days[days.length-1-k]; if(t==null||!isFinite(t))continue;
+    const wgt=Math.pow(0.5,k/10); sw+=wgt; sa+=wgt*t; n++;   // 10-day half-life, newest day heaviest
+  }
+  if(n<30)return null;
+  const taC=(sa/sw-32)*5/9;
+  const twC=3+28/(1+Math.exp(0.17*(14-taC)));
+  return Math.round(twC*9/5+32);
+}
 async function fetchForecast(loc){
   const p=await getJSON(`https://api.weather.gov/points/${loc.lat.toFixed(4)},${loc.lon.toFixed(4)}`,10000);
   const f=await getJSON(p.properties.forecast,10000);
   const per=f.properties.periods.slice(0,2);
   return per.map(x=>`${x.name}: ${x.shortForecast}, ${x.isDaytime?"high":"low"} ${x.temperature}°${x.temperatureUnit}${x.windSpeed?", wind "+x.windSpeed:""}`).join(". ");
 }
+/* USGS gauges. The legacy waterservices.usgs.gov is being retired (planned Q1 2027), so try the new
+   api.waterdata.usgs.gov first and fall back to the legacy service. Water temp (00010, °C), discharge (00060, cfs). */
+const errMsg=e=>e&&e.name==="AbortError"?"timed out":(e&&e.message==="Failed to fetch"?"blocked or offline":(e&&e.message)||"error");
+function gaugeBox(loc){const dLat=0.36,dLon=0.45;return [loc.lon-dLon,loc.lat-dLat,loc.lon+dLon,loc.lat+dLat].map(v=>v.toFixed(4)).join(",");}
 async function fetchGauges(loc){
-  // USGS instantaneous values: water temp (00010, °C) and discharge (00060, cfs) within ~25 miles, past 3 days.
-  const dLat=0.36,dLon=0.45;
-  const box=[loc.lon-dLon,loc.lat-dLat,loc.lon+dLon,loc.lat+dLat].map(v=>v.toFixed(4)).join(",");
+  const why=[];
+  try{const o=await fetchGaugesNew(loc);if(o.temp||o.flow){o.via="api.waterdata.usgs.gov";return o;}why.push("new API: no gauges in range");}
+  catch(e){why.push("new API: "+errMsg(e));}
+  try{const o=await fetchGaugesLegacy(loc);o.via="waterservices.usgs.gov";return o;}
+  catch(e){why.push("legacy: "+errMsg(e));}
+  throw new Error(why.join("; "));
+}
+async function fetchGaugesNew(loc){
+  const base="https://api.waterdata.usgs.gov/ogcapi/v0/collections/";
+  const j=await getJSON(`${base}latest-continuous/items?f=json&bbox=${gaugeBox(loc)}&limit=2000`,20000);
+  const out={temp:null,flow:null};
+  (j.features||[]).forEach(f=>{
+    const p=f.properties||{}, code=p.parameter_code;
+    if(code!=="00010"&&code!=="00060")return;
+    const v=+p.value, t=new Date(p.time).getTime();
+    if(p.value===null||p.value===""||!isFinite(v)||v<=-999||!isFinite(t)||Date.now()-t>36*36e5)return;
+    const c=f.geometry&&f.geometry.coordinates; if(!c)return;
+    const dist=miles(loc.lat,loc.lon,c[1],c[0]);
+    const celsius=code==="00010"&&!/\bF\b|fahrenheit/i.test(p.unit_of_measure||"");
+    const rec={site:p.monitoring_location_name||p.monitoring_location_id||"USGS gauge",id:p.monitoring_location_id,dist,last:{t,v:code==="00010"&&!celsius?(v-32)*5/9:v}};
+    rec.fahr=code==="00010"&&!celsius; rec.vals=[rec.last];
+    if(code==="00010"&&(!out.temp||dist<out.temp.dist))out.temp=rec;
+    if(code==="00060"&&(!out.flow||dist<out.flow.dist))out.flow=rec;
+  });
+  // history for the chosen gauges (temp trend, flow change); failures here just skip the trend
+  const hist=async(rec,code)=>{
+    const now=Date.now(), iso=ms=>new Date(ms).toISOString().replace(/\.\d+Z$/,"Z");
+    const h=await getJSON(`${base}continuous/items?f=json&monitoring_location_id=${encodeURIComponent(rec.id)}&parameter_code=${code}&time=${iso(now-72*36e5)}/${iso(now)}&limit=1000`,15000);
+    const vals=(h.features||[]).map(f=>({t:new Date(f.properties.time).getTime(),v:+f.properties.value})).filter(x=>isFinite(x.t)&&isFinite(x.v)&&x.v>-999).sort((a,b)=>a.t-b.t);
+    if(vals.length>1)rec.vals=vals.map(x=>({t:x.t,v:code==="00010"&&rec.fahr?(x.v-32)*5/9:x.v}));
+  };
+  await Promise.allSettled([out.temp&&hist(out.temp,"00010"),out.flow&&out.flow.dist<=15&&hist(out.flow,"00060")]);
+  return out;
+}
+async function fetchGaugesLegacy(loc){
+  const box=gaugeBox(loc);
   const j=await getJSON(`https://waterservices.usgs.gov/nwis/iv/?format=json&bBox=${box}&parameterCd=00010,00060&period=P3D&siteStatus=active`,20000);
   const out={temp:null,flow:null};
   (j.value&&j.value.timeSeries||[]).forEach(ts=>{
@@ -854,8 +912,8 @@ async function refresh(){
   btn.disabled=true;dot.className="dot busy";$("liveTitle").textContent="Refreshing…";
   const list=$("sources");list.textContent="";
   const line=(state,text)=>{const li=el("li");li.appendChild(el("span",state==="ok"?"ok":state==="no"?"no":"na",state==="ok"?"✓":state==="no"?"✕":"–"));li.appendChild(el("span",null,text));list.appendChild(li);};
-  const [w,fc,g]=await Promise.allSettled([fetchWeather(loc),fetchForecast(loc),fetchGauges(loc)]);
-  let okCount=0;
+  const [w,fc,g,ah]=await Promise.allSettled([fetchWeather(loc),fetchForecast(loc),fetchGauges(loc),fetchAirHist(loc)]);
+  let okCount=0, gaugeF=null;
 
   if(w.status==="fulfilled"){
     const d=w.value;okCount++;
@@ -876,22 +934,36 @@ async function refresh(){
     okCount++;
     const {temp,flow}=g.value;
     if(temp){
-      const f=cToF(temp.last.v);
+      const f=cToF(temp.last.v);gaugeF=f;
       $("wtemp").value=f;setSrc("wtemp","live");
       const old=temp.vals.find(v=>v.t>=temp.last.t-72*36e5);
       if(old&&temp.last.t-old.t>=36*36e5){
         const dF=(temp.last.v-old.v)*9/5;
         setSeg("ttrend",dF<=-5?"crash":dF<=-1.5?"down":dF>=2?"up":"flat");setSrc("ttrend","live");
       }
-      line("ok",`Water temp: ${f}°F at ${titleCase(temp.site)} (${temp.dist.toFixed(0)} mi away, ${fmtT(temp.last.t)})`);
-    } else line("na","No active water-temp gauge within ~25 mi. Enter water temp by hand.");
+      line("ok",`Water temp: ${f}°F at ${titleCase(temp.site)} (${temp.dist.toFixed(0)} mi away, ${fmtT(temp.last.t)}, via ${g.value.via})`);
+    } else line("na","No active water-temp gauge within ~25 mi.");
     if(flow&&flow.dist<=15){
       const cfs=Math.round(flow.last.v), six=flow.vals.find(v=>v.t>=flow.last.t-6*36e5);
       const ch=six&&six.v>0?(flow.last.v-six.v)/six.v:0;
       if(loc.type==="tail"){setSeg("flow",cfs>=1500||ch>0.5?"moving":"stable");setSrc("flow","live");}
       line("ok",`Flow: ${cfs.toLocaleString()} cfs at ${titleCase(flow.site)} (${flow.dist.toFixed(0)} mi)${ch>0.25?", rising":ch<-0.25?", dropping":""}`);
     }
-  } else line("no","USGS gauges didn't load. Enter water temp by hand.");
+  } else line("no",`USGS gauges didn't load (${errMsg(g.reason)}).`);
+
+  // Water temp fallback: estimate from recent air temps only when no gauge reading was found.
+  const est=ah.status==="fulfilled"?estWaterTemp(ah.value):null;
+  if(gaugeF==null){
+    const stale=SRC.wtemp==="est"; // an estimate left over from another location must not linger
+    if(loc.type==="tail"||est==null){if(stale){$("wtemp").value="";setSrc("wtemp","");}}
+    if(loc.type==="tail")line("na","Water temp: not estimated for a river/tailwater. Dam releases set it, not the air. Enter it by hand.");
+    else if(est!=null){
+      $("wtemp").value=est;setSrc("wtemp","est");
+      line("na",`Water temp: about ${est}°F, ESTIMATED from the last 6 weeks of air temperatures (no gauge reading). Typically off by about 5°F; enter a real reading if you have one.`);
+    } else line("na","Water temp: no gauge reading, and the air-temperature history for an estimate didn't load. Enter it by hand.");
+  } else if(est!=null&&loc.type!=="tail"){
+    line("na",`Check: the air-temperature estimate would have said ${est}°F (gauge: ${gaugeF}°F, off by ${Math.abs(est-gaugeF).toFixed(0)}°F).`);
+  }
 
   lastLive=Date.now();
   dot.className="dot "+(okCount?"on":"err");
