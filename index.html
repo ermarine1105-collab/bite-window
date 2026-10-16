@@ -117,6 +117,11 @@ ul.tips{margin:0;padding-left:18px;display:grid;gap:6px;font-size:.9rem}
 .cur{stroke:var(--muted);stroke-width:1}
 .readout{font-family:var(--f-mono);font-size:.78rem;min-height:1.4em;margin:8px 0 0;overflow-wrap:anywhere}
 .bnote{font-size:.78rem;color:var(--muted);margin:8px 0 0}
+.dbar{fill:var(--deep)}
+.dtab{width:100%;border-collapse:collapse;font-size:.84rem;margin:10px 0 0}
+.dtab th{font-weight:500;color:var(--muted);text-align:right;padding:4px 6px;border-bottom:1px solid var(--line)}
+.dtab td{text-align:right;padding:4px 6px;border-bottom:1px solid var(--line);font-family:var(--f-mono);font-size:.8rem}
+.dtab th:first-child,.dtab td:first-child{text-align:left}
 footer{color:var(--muted);font-size:.78rem;max-width:80ch}
 footer a{color:inherit}
 .dial circle.val{transition:stroke-dashoffset .5s ease}
@@ -229,6 +234,15 @@ footer a{color:inherit}
         <div class="chartbox" id="baroChart"></div>
         <div class="readout" id="baroReadout"></div>
         <p class="bnote">Solid line: the past 24 hours. Dashed line: the forecast for the next 48 hours. Tap or hover the chart for any hour.</p>
+      </section>
+      <section class="panel">
+        <h2>Dam &amp; lake levels (TVA)</h2>
+        <p class="baro-sum" id="damSummary">Tap Refresh conditions to load dam releases.</p>
+        <div class="chartbox" id="damChart"></div>
+        <div class="readout" id="damReadout"></div>
+        <div id="damPred"></div>
+        <p class="bnote" id="damNote">Hourly average release (cfs) for the past 48 hours. Tap or hover for any hour.</p>
+        <p class="bnote">TVA data, relayed by <a href="https://watts.bar/dam-generation/" target="_blank" rel="noopener">watts.bar</a>, an independent site that is not an official TVA source. Not for navigation. Confirm releases with TVA (800-238-2264) before you launch.</p>
       </section>
       <section class="panel"><h2>Score drivers</h2><div class="factors" id="factors"></div></section>
       <section class="panel">
@@ -905,14 +919,82 @@ function renderBaro(){
   show(nowIdx,true);
 }
 let rzT=null;
-window.addEventListener("resize",()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(BARO)renderBaro();},150);});
+window.addEventListener("resize",()=>{clearTimeout(rzT);rzT=setTimeout(()=>{if(BARO)renderBaro();if(DAM)renderDam();},150);});
+
+/* ---------- TVA dam & lake data (via the watts.bar JSON feed; Fort Loudoun, Melton Hill, Watts Bar) ---------- */
+const DAMS={loudoun:["fort_loudoun","Fort Loudoun"],melton:["melton_hill","Melton Hill"],wattsbar:["watts_bar","Watts Bar"]};
+let DAM=null, DAMSTATE="idle";
+const dnum=s=>{const v=parseFloat(String(s==null?"":s).replace(/,/g,""));return isFinite(v)?v:null;};
+async function fetchDam(loc){
+  const d=DAMS[loc.id]; if(!d)return {none:true};
+  const j=await getJSON("https://data.watts.bar/tva.json",15000), r=j&&j[d[0]];
+  if(!r)throw new Error("feed has no data for "+d[1]);
+  const obs=(r.observed_48h||[]).map(o=>({day:o.Day,time:o.Time,elev:dnum(o.ReservoirElevation),tail:dnum(o.TailwaterElevation),q:dnum(o.AverageHourlyDischarge)})).filter(o=>o.q!=null||o.elev!=null);
+  if(!obs.length)throw new Error("feed has no recent readings");
+  const pred=(r.predicted||[]).map(p=>({day:p.Day,inflow:dnum(p.AverageInflow),outflow:dnum(p.AverageOutflow),elev:dnum(p.MidnightElevation)}));
+  const gen=(r.generation||[]).map(g=>({day:g.Day,time:g.Time,gens:g.Generators}));
+  return {name:d[1],obs,pred,gen,fetchedAt:j.fetched_at};
+}
+function shortHour(t){const s=String(t||"");if(/^midnight/i.test(s))return "12a";if(/^noon/i.test(s))return "12p";const m=s.match(/(\d+)\s*(AM|PM)/i);return m?m[1]+m[2][0].toLowerCase():s;}
+function renderDam(){
+  const box=$("damChart"), sum=$("damSummary"), ro=$("damReadout"), pr=$("damPred");
+  box.textContent="";ro.textContent="";pr.textContent="";
+  if(DAMSTATE==="none"){sum.textContent="TVA dam data is available for Fort Loudoun, Melton Hill, and Watts Bar lakes. Pick one of those to see releases and pool levels.";return;}
+  if(DAMSTATE==="error"||!DAM){sum.textContent="Dam data didn't load. Tap Refresh conditions to try again, or check TVA's lake levels page.";return;}
+  const {name,obs,pred,gen}=DAM, last=obs[obs.length-1];
+  const withQ=obs.filter(o=>o.q!=null), now=withQ.length?withQ[withQ.length-1]:last;
+  const withE=obs.filter(o=>o.elev!=null), eNow=withE.length?withE[withE.length-1]:null, eOld=withE.length>24?withE[withE.length-25]:null;
+  const bits=[];
+  if(eNow)bits.push(`pool ${eNow.elev.toFixed(2)} ft`+(eOld?` (${eNow.elev-eOld.elev>=0?"+":""}${(eNow.elev-eOld.elev).toFixed(2)} ft in 24 hr)`:""));
+  if(now.tail!=null)bits.push(`tailwater ${now.tail.toFixed(2)} ft`);
+  if(now.q!=null)bits.push(`releasing ${Math.round(now.q).toLocaleString()} cfs (${now.time})`);
+  let g="";if(gen.length)g=" Expected generation: "+gen.slice(0,2).map(x=>`${x.day} ${x.time}: ${x.gens} units`).join("; ")+".";
+  sum.textContent=`${name} Dam: ${bits.join(", ")}.${g}`;
+  // 48-hour release chart (single series, one axis)
+  const n=obs.length, qs=obs.map(o=>o.q==null?0:o.q), mx=Math.max(1,...qs);
+  const W=Math.max(300,Math.floor(box.clientWidth||640)), H=W<520?200:240, narrow=W<520;
+  const m={l:48,r:10,t:16,b:28}, iw=W-m.l-m.r, ih=H-m.t-m.b;
+  const steps=[250,500,1000,2000,5000,10000,20000], st=steps.find(s=>mx/s<=4)||50000, yMax=Math.ceil(mx/st)*st;
+  const Y=v=>m.t+(1-v/yMax)*ih, f1=v=>v.toFixed(1), bw=iw/n;
+  let s=`<svg id="damSvg" viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="${name} Dam hourly release, past 48 hours. ${sum.textContent}">`;
+  s+=`<text class="axt" x="${m.l-6}" y="11" text-anchor="end">cfs</text>`;
+  for(let v=0;v<=yMax+1e-9;v+=st){const y=f1(Y(v));s+=`<line class="gl" x1="${m.l}" x2="${W-m.r}" y1="${y}" y2="${y}"/><text class="axt" x="${m.l-6}" y="${f1(+y+4)}" text-anchor="end">${v.toLocaleString()}</text>`;}
+  const every=narrow?12:6;
+  obs.forEach((o,i)=>{
+    const x=m.l+(i+.5)*bw, midn=/^midnight/i.test(o.time||"");
+    if(midn&&i>0)s+=`<line class="gl day" x1="${f1(m.l+i*bw)}" x2="${f1(m.l+i*bw)}" y1="${m.t}" y2="${m.t+ih}"/>`;
+    if(i%every===0||midn)s+=`<text class="axt" x="${f1(x)}" y="${H-8}" text-anchor="middle"${midn?' font-weight="600"':""}>${midn&&o.day?o.day.slice(0,5):shortHour(o.time)}</text>`;
+    if(o.q!=null&&o.q>0){const h=Math.max(1,ih*o.q/yMax);s+=`<rect class="dbar" x="${f1(m.l+i*bw+1)}" y="${f1(m.t+ih-h)}" width="${f1(Math.max(1,bw-2))}" height="${f1(h)}" rx="1.5"/>`;}
+  });
+  s+=`<line id="damCur" class="cur" x1="0" x2="0" y1="${m.t}" y2="${m.t+ih}" visibility="hidden"/><rect x="${m.l}" y="${m.t}" width="${iw}" height="${ih}" fill="transparent"/></svg>`;
+  box.innerHTML=s;
+  const svg=$("damSvg"), cur=$("damCur");
+  const show=(i,reset)=>{
+    const o=obs[i];
+    ro.textContent=`${reset?"Latest · ":""}${o.day} ${o.time} · ${o.q==null?"no release data":Math.round(o.q).toLocaleString()+" cfs"}${o.elev!=null?` · pool ${o.elev.toFixed(2)} ft`:""}${o.tail!=null?` · tailwater ${o.tail.toFixed(2)} ft`:""}`;
+    cur.setAttribute("visibility",reset?"hidden":"visible");
+    if(!reset){const x=f1(m.l+(i+.5)*bw);cur.setAttribute("x1",x);cur.setAttribute("x2",x);}
+  };
+  const move=e=>{const r=svg.getBoundingClientRect();const x=(e.clientX-r.left)*(W/r.width);show(clamp(Math.floor((x-m.l)/bw),0,n-1),false);};
+  svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);
+  svg.addEventListener("pointerleave",()=>show(obs.indexOf(now),true));
+  show(Math.max(0,obs.indexOf(now)),true);
+  // TVA's predicted daily numbers
+  if(pred.length){
+    const t=el("table","dtab"), hd=el("tr");
+    ["Forecast day","Avg inflow","Avg outflow","Pool at midnight"].forEach(h=>hd.appendChild(el("th",null,h)));t.appendChild(hd);
+    pred.forEach(p=>{const tr=el("tr");
+      [p.day,p.inflow!=null?Math.round(p.inflow).toLocaleString()+" cfs":"–",p.outflow!=null?Math.round(p.outflow).toLocaleString()+" cfs":"–",p.elev!=null?p.elev.toFixed(1)+" ft":"–"].forEach(c=>tr.appendChild(el("td",null,c)));t.appendChild(tr);});
+    pr.appendChild(t);
+  }
+}
 
 async function refresh(){
   const loc=getLoc(), btn=$("refreshBtn"), dot=$("liveDot");
   btn.disabled=true;dot.className="dot busy";$("liveTitle").textContent="Refreshing…";
   const list=$("sources");list.textContent="";
   const line=(state,text)=>{const li=el("li");li.appendChild(el("span",state==="ok"?"ok":state==="no"?"no":"na",state==="ok"?"✓":state==="no"?"✕":"–"));li.appendChild(el("span",null,text));list.appendChild(li);};
-  const [w,fc,g,ah]=await Promise.allSettled([fetchWeather(loc),fetchForecast(loc),fetchGauges(loc),fetchAirHist(loc)]);
+  const [w,fc,g,ah,dm]=await Promise.allSettled([fetchWeather(loc),fetchForecast(loc),fetchGauges(loc),fetchAirHist(loc),fetchDam(loc)]);
   let okCount=0, gaugeF=null;
 
   if(w.status==="fulfilled"){
@@ -965,12 +1047,19 @@ async function refresh(){
     line("na",`Check: the air-temperature estimate would have said ${est}°F (gauge: ${gaugeF}°F, off by ${Math.abs(est-gaugeF).toFixed(0)}°F).`);
   }
 
+  if(dm.status==="fulfilled"&&dm.value.none){DAM=null;DAMSTATE="none";}
+  else if(dm.status==="fulfilled"){
+    DAM=dm.value;DAMSTATE="ok";
+    const o=DAM.obs.filter(x=>x.q!=null).pop();
+    line("ok",`TVA dam data (${DAM.name}): ${o?Math.round(o.q).toLocaleString()+" cfs releasing at "+o.time:"pool and tailwater levels"}, via watts.bar`);
+  } else {DAM=null;DAMSTATE="error";line("na",`TVA dam data didn't load (${errMsg(dm.reason)}).`);}
+
   lastLive=Date.now();
   dot.className="dot "+(okCount?"on":"err");
   $("liveTitle").textContent=okCount?`Refreshed ${fmtT(lastLive)}`:"Refresh failed";
   btn.disabled=false;
   if(okCount){userEdited=true;$("exampleNote").hidden=true;}
-  save();compute();renderBaro();
+  save();compute();renderBaro();renderDam();
 }
 
 /* ---------- Init ---------- */
